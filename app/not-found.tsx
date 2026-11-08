@@ -1,0 +1,1 @@
+import Link from 'next/link';export default function NotFound(){return <div className="main-container page-pad"><h1 style={{fontSize:140,margin:0}}>404.</h1><h2 style={{fontSize:70}}>NOT IN THE CULTURE.</h2><p>This page does not exist or is no longer available.</p><Link className="btn orange" href="/">BACK TO KARMA</Link></div>}

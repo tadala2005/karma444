@@ -1,0 +1,1 @@
+'use client';export default function Error({reset}:{error:Error,reset:()=>void}){return <div className="main-container page-pad"><h1 style={{fontSize:90}}>WE HIT A SNAG.</h1><p>Something interrupted this page. Try loading it again.</p><button className="btn orange" onClick={reset}>TRY AGAIN</button></div>}

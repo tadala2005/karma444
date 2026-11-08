@@ -1,0 +1,159 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  USER
+  ARTIST
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PAID_REVIEW
+  FAILED
+  CANCELLED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  REFUNDED
+}
+
+enum ItemType {
+  PRODUCT
+  TICKET
+}
+
+model User {
+  id           String        @id @default(cuid())
+  name         String
+  email        String        @unique
+  passwordHash String
+  role         Role          @default(USER)
+  createdAt    DateTime      @default(now())
+  orders       Order[]
+  rsvps        Rsvp[]
+}
+
+model Artist {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  bio       String
+  genre     String   @default("Alternative")
+  city      String   @default("Malawi")
+  image     String
+  instagram String?
+  spotify   String?
+  featured  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Article {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String   @unique
+  excerpt     String
+  body        String
+  image       String
+  category    String   @default("Culture")
+  author      String   @default("Karma Editorial")
+  featured    Boolean  @default(false)
+  publishedAt DateTime @default(now())
+}
+
+model Event {
+  id        String      @id @default(cuid())
+  title     String
+  slug      String      @unique
+  summary   String
+  image     String
+  venue     String
+  city      String
+  date      DateTime
+  price     Int         @default(0)
+  capacity  Int         @default(100)
+  remaining Int         @default(100)
+  featured  Boolean     @default(false)
+  createdAt DateTime    @default(now())
+  rsvps     Rsvp[]
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String
+  image       String
+  category    String   @default("Merch")
+  price       Int
+  stock       Int      @default(0)
+  featured    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+model Order {
+  id           String       @id @default(cuid())
+  reference    String       @unique
+  userId       String?
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name         String
+  email        String
+  phone        String
+  address      String
+  city         String
+  total        Int
+  currency     String       @default("MWK")
+  status       OrderStatus  @default(PENDING)
+  paymentLink  String?
+  providerRef  String?
+  items        OrderItem[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([userId, createdAt])
+}
+
+model OrderItem {
+  id          String   @id @default(cuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  kind        ItemType
+  catalogId   String
+  title       String
+  size        String?
+  unitPrice   Int
+  quantity    Int
+  subtotal    Int
+}
+
+model Rsvp {
+  id        String   @id @default(cuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name      String
+  email     String
+  createdAt DateTime @default(now())
+
+  @@unique([eventId, email])
+}
+
+model Booking {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  service   String
+  budget    String?
+  brief     String
+  status    String   @default("NEW")
+  createdAt DateTime @default(now())
+}

@@ -3,28 +3,62 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/auth";
-import {
-  allowRequest,
-  requestIp
-} from "@/lib/limits";
+import { allowRequest, requestIp } from "@/lib/limits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_BYTES = 4 * 1024 * 1024;
+/**
+ * KARMA CURATED
+ * Secure admin media upload endpoint.
+ *
+ * POST /api/admin/upload
+ *
+ * Supported:
+ * - JPEG
+ * - PNG
+ * - WebP
+ *
+ * Destination:
+ * Supabase Storage / karma-media
+ */
+
 const BUCKET = "karma-media";
 
-const MIME_EXT: Record<string, string> = {
+const MAX_FILE_SIZE = 4 * 1024 * 1024;
+
+const ALLOWED_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp"
 };
 
-function signatureMatches(
+function jsonError(
+  message: string,
+  status: number
+) {
+  return NextResponse.json(
+    {
+      success: false,
+      error: message
+    },
+    { status }
+  );
+}
+
+/**
+ * Verify the actual file signature rather than
+ * trusting the browser-provided MIME type.
+ */
+function isValidImage(
   bytes: Uint8Array,
-  mime: string
+  mimeType: string
 ): boolean {
-  if (mime === "image/jpeg") {
+  if (bytes.length < 12) {
+    return false;
+  }
+
+  if (mimeType === "image/jpeg") {
     return (
       bytes[0] === 0xff &&
       bytes[1] === 0xd8 &&
@@ -32,210 +66,374 @@ function signatureMatches(
     );
   }
 
-  if (mime === "image/png") {
+  if (mimeType === "image/png") {
     const signature = [
       137, 80, 78, 71, 13, 10, 26, 10
     ];
 
     return signature.every(
-      (byte, i) => bytes[i] === byte
+      (value, index) =>
+        bytes[index] === value
     );
   }
 
-  if (mime === "image/webp") {
-    const prefix = String.fromCharCode(
-      ...bytes.slice(0, 4)
+  if (mimeType === "image/webp") {
+    const riff = String.fromCharCode(
+      ...bytes.subarray(0, 4)
     );
 
-    const format = String.fromCharCode(
-      ...bytes.slice(8, 12)
+    const webp = String.fromCharCode(
+      ...bytes.subarray(8, 12)
     );
 
     return (
-      prefix === "RIFF" &&
-      format === "WEBP"
+      riff === "RIFF" &&
+      webp === "WEBP"
     );
   }
 
   return false;
 }
 
-export async function POST(req: Request) {
-  const admin = await requireAdmin();
+/**
+ * Read environment configuration.
+ *
+ * Supports current Supabase secret API keys
+ * and legacy service-role JWT keys.
+ */
+function getStorageConfig() {
+  const url = process.env.SUPABASE_URL
+    ?.trim()
+    .replace(/\/+$/, "");
 
-  if (!admin) {
-    return NextResponse.json(
-      { error: "Administrator access required" },
-      { status: 403 }
-    );
+  const secret = (
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    ""
+  ).trim();
+
+  if (!url || !secret) {
+    return null;
   }
 
   if (
+    !/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(
+      url
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    url,
+    secret
+  };
+}
+
+/**
+ * Build secure Supabase request headers.
+ */
+function getUploadHeaders(
+  secret: string,
+  contentType: string
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    apikey: secret,
+    "Content-Type": contentType,
+    "x-upsert": "false",
+    "cache-control": "3600"
+  };
+
+  /*
+   * Legacy service-role keys are JWTs.
+   * New sb_secret_ keys are NOT JWTs
+   * and must not be sent as Bearer tokens.
+   */
+  if (secret.startsWith("eyJ")) {
+    headers.Authorization = `Bearer ${secret}`;
+  }
+
+  return headers;
+}
+
+/**
+ * POST /api/admin/upload
+ */
+export async function POST(request: Request) {
+  // 1. Authenticate administrator.
+  try {
+    const admin = await requireAdmin();
+
+    if (!admin) {
+      return jsonError(
+        "Administrator access required.",
+        403
+      );
+    }
+  } catch {
+    return jsonError(
+      "Unable to verify administrator session.",
+      503
+    );
+  }
+
+  // 2. Apply rate limiting.
+  const ip = requestIp(request);
+
+  if (
     !allowRequest(
-      requestIp(req),
+      ip,
       "media-upload",
       20,
       60_000
     )
   ) {
-    return NextResponse.json(
-      { error: "Too many uploads. Try again shortly." },
-      { status: 429 }
+    return jsonError(
+      "Too many uploads. Please try again shortly.",
+      429
     );
   }
 
-  const origin = req.headers.get("origin");
+  // 3. Reject cross-origin browser requests.
+  const origin = request.headers.get("origin");
+
+  const requestOrigin = new URL(
+    request.url
+  ).origin;
 
   if (
     origin &&
-    origin !== new URL(req.url).origin
+    origin !== requestOrigin
   ) {
-    return NextResponse.json(
-      { error: "Invalid request origin" },
-      { status: 403 }
+    return jsonError(
+      "Invalid request origin.",
+      403
     );
   }
 
-  const endpoint = process.env.SUPABASE_URL
-    ?.replace(/\/$/, "");
-
-  const secret =
-    process.env.SUPABASE_SECRET_KEY ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
-
   if (
-    !endpoint ||
-    !/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(
-      endpoint
-    ) ||
-    !secret
+    request.headers.get("sec-fetch-site") ===
+    "cross-site"
   ) {
-    return NextResponse.json(
-      {
-        error:
-          "Supabase Storage is not configured"
-      },
-      { status: 503 }
+    return jsonError(
+      "Cross-site uploads are not allowed.",
+      403
+    );
+  }
+
+  // 4. Check storage configuration.
+  const config = getStorageConfig();
+
+  if (!config) {
+    return jsonError(
+      "Supabase Storage is not configured. Check SUPABASE_URL and SUPABASE_SECRET_KEY.",
+      503
     );
   }
 
   try {
-    const form = await req.formData();
-    const file = form.get("file");
+    // 5. Read uploaded form.
+    const formData = await request.formData();
 
-    if (!(file instanceof File)) {
-      return NextResponse.json(
-        { error: "Select an image" },
-        { status: 400 }
+    const uploaded = formData.get("file");
+
+    if (!(uploaded instanceof File)) {
+      return jsonError(
+        "Please select an image to upload.",
+        400
       );
     }
 
-    const extension = MIME_EXT[file.type];
+    const file = uploaded;
+
+    // 6. Verify MIME type.
+    const extension = ALLOWED_TYPES[file.type];
 
     if (!extension) {
-      return NextResponse.json(
-        {
-          error:
-            "Only JPG, PNG and WebP images are supported"
-        },
-        { status: 400 }
+      return jsonError(
+        "Unsupported image format. Use JPG, PNG or WebP.",
+        400
       );
     }
 
-    if (
-      file.size === 0 ||
-      file.size > MAX_BYTES
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Image must be smaller than 4 MB"
-        },
-        { status: 400 }
+    // 7. Validate file size.
+    if (file.size <= 0) {
+      return jsonError(
+        "The selected image is empty.",
+        400
       );
     }
 
-    const bytes = new Uint8Array(
-      await file.arrayBuffer()
-    );
-
-    if (!signatureMatches(bytes, file.type)) {
-      return NextResponse.json(
-        {
-          error:
-            "Invalid image format"
-        },
-        { status: 400 }
+    if (file.size > MAX_FILE_SIZE) {
+      return jsonError(
+        "Image exceeds 4 MB. Please upload a smaller image.",
+        413
       );
     }
 
+    // 8. Read the file once as an ArrayBuffer.
+    const arrayBuffer = await file.arrayBuffer();
+
+    // 9. Validate actual image signature.
+    const bytes = new Uint8Array(arrayBuffer);
+
+    if (!isValidImage(bytes, file.type)) {
+      return jsonError(
+        "Invalid or unsupported image file.",
+        400
+      );
+    }
+
+    // 10. Generate a collision-resistant filename.
     const month = new Date()
       .toISOString()
       .slice(0, 7);
 
-    const filename =
-      `${randomUUID()}.${extension}`;
+    const filename = [
+      randomUUID(),
+      extension
+    ].join(".");
 
-    const path =
-      `uploads/${month}/${filename}`;
+    const storagePath = [
+      "uploads",
+      month,
+      filename
+    ].join("/");
 
-    const headers: Record<string, string> = {
-      apikey: secret,
-      "Content-Type": file.type,
-      "x-upsert": "false"
-    };
+    // 11. Prepare Supabase upload destination.
+    const uploadUrl =
+      `${config.url}/storage/v1/object/` +
+      `${BUCKET}/${storagePath}`;
 
-    if (secret.startsWith("eyJ")) {
-      headers.Authorization = `Bearer ${secret}`;
+    // 12. Upload the validated ArrayBuffer.
+    const response = await fetch(uploadUrl, {
+      method: "POST",
+
+      headers: getUploadHeaders(
+        config.secret,
+        file.type
+      ),
+
+      body: arrayBuffer,
+
+      cache: "no-store",
+
+      signal: AbortSignal.timeout(25000)
+    });
+
+    // 13. Handle provider errors.
+    if (!response.ok) {
+      let providerMessage = "";
+
+      try {
+        const errorData: unknown =
+          await response.json();
+
+        if (
+          errorData &&
+          typeof errorData === "object"
+        ) {
+          const data = errorData as Record<
+            string,
+            unknown
+          >;
+
+          providerMessage = String(
+            data.message ||
+            data.error ||
+            data.statusCode ||
+            ""
+          );
+        }
+      } catch {
+        providerMessage = "";
+      }
+
+      console.error(
+        "[KARMA MEDIA] Supabase upload failed",
+        {
+          status: response.status,
+          message: providerMessage
+        }
+      );
+
+      if (response.status === 401) {
+        return jsonError(
+          "Supabase authentication failed. Verify the server secret key.",
+          502
+        );
+      }
+
+      if (response.status === 403) {
+        return jsonError(
+          "Supabase denied the upload. Check storage permissions.",
+          502
+        );
+      }
+
+      if (response.status === 404) {
+        return jsonError(
+          "Storage bucket karma-media was not found.",
+          502
+        );
+      }
+
+      if (response.status === 413) {
+        return jsonError(
+          "Supabase rejected the image size.",
+          413
+        );
+      }
+
+      return jsonError(
+        "Image upload failed. Check Supabase Storage configuration.",
+        502
+      );
     }
 
-    const result = await fetch(
-      `${endpoint}/storage/v1/object/${BUCKET}/${path}`,
+    // 14. Build the public image URL.
+    const publicUrl =
+      `${config.url}/storage/v1/object/public/` +
+      `${BUCKET}/${storagePath}`;
+
+    // 15. Preserve the response format expected
+    // by the existing MediaUpload component.
+    return NextResponse.json(
       {
-        method: "POST",
-        headers,
-        body: bytes,
-        cache: "no-store"
+        success: true,
+        url: publicUrl,
+        path: storagePath,
+        bucket: BUCKET
+      },
+      {
+        status: 201,
+        headers: {
+          "Cache-Control": "no-store"
+        }
       }
     );
 
-    if (!result.ok) {
-      console.error(
-        "Storage upload failed:",
-        result.status
-      );
-
-      return NextResponse.json(
-        {
-          error:
-            "Upload failed. Check your Supabase Storage settings."
-        },
-        { status: 502 }
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.name === "TimeoutError"
+    ) {
+      return jsonError(
+        "Image upload timed out. Please try again.",
+        504
       );
     }
 
-    const url =
-      `${endpoint}/storage/v1/object/public/${BUCKET}/${path}`;
-
-    return NextResponse.json(
-      {
-        url,
-        path
-      },
-      { status: 201 }
-    );
-
-  } catch (error) {
     console.error(
-      "Image upload error:",
+      "[KARMA MEDIA] Upload error:",
       error instanceof Error
         ? error.message
-        : "Unknown error"
+        : "Unknown upload error"
     );
 
-    return NextResponse.json(
-      { error: "Image upload failed" },
-      { status: 500 }
+    return jsonError(
+      "Unable to upload the image. Please try again.",
+      500
     );
   }
 }

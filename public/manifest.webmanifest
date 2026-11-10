@@ -1,1 +1,19 @@
-{"name":"KARMA — The Culture Is Ours","short_name":"KARMA","start_url":"/","scope":"/","display":"standalone","background_color":"#10100f","theme_color":"#10100f","description":"Malawi's home for culture, events, artists and streetwear.","icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
+
+{
+  "name": "Karma Curated — What You Deserve",
+  "short_name": "Karma Curated",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#10100f",
+  "theme_color": "#10100f",
+  "description": "Independent music, fashion, events, culture and streetwear from Malawi.",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -8,57 +8,160 @@ import {
   IMAGE_SLOT_KEYS
 } from "@/lib/media-slots";
 
-import {
-  imageUrl
-} from "@/lib/schemas";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export async function PATCH(req: Request) {
+function errorResponse(
+  message: string,
+  status: number
+) {
+  return NextResponse.json(
+    { error: message },
+    { status }
+  );
+}
+
+export async function PATCH(request: Request) {
   const admin = await requireAdmin();
 
   if (!admin) {
-    return NextResponse.json(
-      { error: "Admin access required" },
-      { status: 403 }
+    return errorResponse(
+      "Administrator access required.",
+      403
+    );
+  }
+
+  const requestOrigin =
+    new URL(request.url).origin;
+
+  const origin =
+    request.headers.get("origin");
+
+  if (
+    (origin && origin !== requestOrigin) ||
+    request.headers.get("sec-fetch-site") ===
+      "cross-site"
+  ) {
+    return errorResponse(
+      "Invalid request origin.",
+      403
     );
   }
 
   try {
-    const { key, url } = await req.json();
+    const body: unknown =
+      await request.json();
+
+    if (
+      !body ||
+      typeof body !== "object"
+    ) {
+      return errorResponse(
+        "Invalid request body.",
+        400
+      );
+    }
+
+    const data = body as Record<
+      string,
+      unknown
+    >;
+
+    const key = data.key;
+    const url = data.url;
 
     if (
       typeof key !== "string" ||
       !IMAGE_SLOT_KEYS.has(key)
     ) {
-      return NextResponse.json(
-        { error: "Invalid image location" },
-        { status: 400 }
+      return errorResponse(
+        "Invalid image placement.",
+        400
       );
     }
 
-    const validatedUrl = imageUrl.parse(url);
+    if (
+      typeof url !== "string"
+    ) {
+      return errorResponse(
+        "An uploaded image URL is required.",
+        400
+      );
+    }
 
-    const item = await prisma.siteAsset.upsert({
-      where: { key },
+    const endpoint =
+      process.env.SUPABASE_URL
+        ?.trim()
+        .replace(/\/+$/, "");
 
-      create: {
-        key,
-        imageUrl: validatedUrl
-      },
+    if (!endpoint) {
+      return errorResponse(
+        "Supabase URL is not configured.",
+        503
+      );
+    }
 
-      update: {
-        imageUrl: validatedUrl
-      }
+    const allowedPrefix =
+      `${endpoint}/storage/v1/object/public/karma-media/`;
+
+    // Only accept images from our own bucket.
+    if (
+      !url.startsWith(allowedPrefix)
+    ) {
+      return errorResponse(
+        "Please upload an image using Karma Curated's image uploader.",
+        400
+      );
+    }
+
+    const parsed = new URL(url);
+    const expectedOrigin =
+      new URL(endpoint).origin;
+
+    if (
+      parsed.origin !== expectedOrigin ||
+      parsed.search ||
+      parsed.hash ||
+      !/\.(jpg|jpeg|png|webp)$/i.test(
+        parsed.pathname
+      )
+    ) {
+      return errorResponse(
+        "Invalid image URL.",
+        400
+      );
+    }
+
+    const item =
+      await prisma.siteAsset.upsert({
+        where: { key },
+
+        create: {
+          key,
+          imageUrl: url
+        },
+
+        update: {
+          imageUrl: url
+        }
+      });
+
+    return NextResponse.json({
+      success: true,
+      item
     });
 
-    return NextResponse.json({ item });
+  } catch (error) {
+    console.error(
+      "Karma appearance update failed",
+      error instanceof Error
+        ? error.message
+        : "Unknown error"
+    );
 
-  } catch {
-    return NextResponse.json(
-      {
-        error:
-          "Could not save the image"
-      },
-      { status: 400 }
+    return errorResponse(
+      "Unable to update website appearance.",
+      500
     );
   }
 }

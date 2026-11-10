@@ -1,3 +1,4 @@
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -32,14 +33,15 @@ enum ItemType {
 }
 
 model User {
-  id           String        @id @default(cuid())
+  id           String   @id @default(cuid())
   name         String
-  email        String        @unique
+  email        String   @unique
   passwordHash String
-  role         Role          @default(USER)
-  createdAt    DateTime      @default(now())
-  orders       Order[]
-  rsvps        Rsvp[]
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+
+  orders Order[]
+  rsvps  Rsvp[]
 }
 
 model Artist {
@@ -70,20 +72,21 @@ model Article {
 }
 
 model Event {
-  id        String      @id @default(cuid())
+  id        String   @id @default(cuid())
   title     String
-  slug      String      @unique
+  slug      String   @unique
   summary   String
   image     String
   venue     String
   city      String
   date      DateTime
-  price     Int         @default(0)
-  capacity  Int         @default(100)
-  remaining Int         @default(100)
-  featured  Boolean     @default(false)
-  createdAt DateTime    @default(now())
-  rsvps     Rsvp[]
+  price     Int      @default(0)
+  capacity  Int      @default(100)
+  remaining Int      @default(100)
+  featured  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  rsvps Rsvp[]
 }
 
 model Product {
@@ -96,50 +99,99 @@ model Product {
   price       Int
   stock       Int      @default(0)
   featured    Boolean  @default(false)
+  gallery     String[] @default([])
   createdAt   DateTime @default(now())
+
+  variants ProductVariant[]
+}
+
+model ProductVariant {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(
+    fields: [productId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  size   String
+  color  String
+  stock  Int     @default(0)
+  active Boolean @default(true)
+
+  @@unique([productId, size, color])
+  @@index([productId, active])
+}
+
+model SiteAsset {
+  key       String   @id
+  imageUrl  String
+  updatedAt DateTime @updatedAt
 }
 
 model Order {
-  id           String       @id @default(cuid())
-  reference    String       @unique
-  userId       String?
-  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
-  name         String
-  email        String
-  phone        String
-  address      String
-  city         String
-  total        Int
-  currency     String       @default("MWK")
-  status       OrderStatus  @default(PENDING)
-  paymentLink  String?
-  providerRef  String?
-  items        OrderItem[]
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  id          String      @id @default(cuid())
+  reference   String      @unique
+  userId      String?
+  user        User?       @relation(
+    fields: [userId],
+    references: [id],
+    onDelete: SetNull
+  )
+
+  name        String
+  email       String
+  phone       String
+  address     String
+  city        String
+  total       Int
+  currency    String      @default("MWK")
+  status      OrderStatus @default(PENDING)
+  paymentLink String?
+  providerRef String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  items OrderItem[]
 
   @@index([userId, createdAt])
 }
 
 model OrderItem {
-  id          String   @id @default(cuid())
-  orderId     String
-  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  kind        ItemType
-  catalogId   String
-  title       String
-  size        String?
-  unitPrice   Int
-  quantity    Int
-  subtotal    Int
+  id        String @id @default(cuid())
+  orderId   String
+  order     Order  @relation(
+    fields: [orderId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  kind      ItemType
+  catalogId String
+  title     String
+  size      String?
+  color     String?
+  variantId String?
+  unitPrice Int
+  quantity  Int
+  subtotal  Int
 }
 
 model Rsvp {
-  id        String   @id @default(cuid())
-  eventId   String
-  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  id      String @id @default(cuid())
+  eventId String
+  event   Event  @relation(
+    fields: [eventId],
+    references: [id],
+    onDelete: Cascade
+  )
+
   userId    String?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user      User?    @relation(
+    fields: [userId],
+    references: [id],
+    onDelete: SetNull
+  )
   name      String
   email     String
   createdAt DateTime @default(now())

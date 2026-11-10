@@ -9,11 +9,20 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// ============================================
+// KARMA CURATED — DATABASE SCHEMA
+// Prisma 6.19.3 / PostgreSQL / Supabase
+// ============================================
+
+// USER ROLES
+
 enum Role {
   USER
   ARTIST
   ADMIN
 }
+
+// ORDER STATUS
 
 enum OrderStatus {
   PENDING
@@ -27,10 +36,16 @@ enum OrderStatus {
   REFUNDED
 }
 
+// ORDER ITEM TYPES
+
 enum ItemType {
   PRODUCT
   TICKET
 }
+
+// ============================================
+// USERS
+// ============================================
 
 model User {
   id           String   @id @default(cuid())
@@ -43,6 +58,10 @@ model User {
   orders Order[]
   rsvps  Rsvp[]
 }
+
+// ============================================
+// ARTISTS
+// ============================================
 
 model Artist {
   id        String   @id @default(cuid())
@@ -58,6 +77,10 @@ model Artist {
   createdAt DateTime @default(now())
 }
 
+// ============================================
+// EDITORIAL ARTICLES
+// ============================================
+
 model Article {
   id          String   @id @default(cuid())
   title       String
@@ -70,6 +93,10 @@ model Article {
   featured    Boolean  @default(false)
   publishedAt DateTime @default(now())
 }
+
+// ============================================
+// EVENTS
+// ============================================
 
 model Event {
   id        String   @id @default(cuid())
@@ -89,6 +116,10 @@ model Event {
   rsvps Rsvp[]
 }
 
+// ============================================
+// MERCHANDISE PRODUCTS
+// ============================================
+
 model Product {
   id          String   @id @default(cuid())
   name        String
@@ -105,14 +136,15 @@ model Product {
   variants ProductVariant[]
 }
 
+// ============================================
+// PRODUCT VARIANTS
+// SIZE / COLOR / STOCK
+// ============================================
+
 model ProductVariant {
   id        String  @id @default(cuid())
   productId String
-  product   Product @relation(
-    fields: [productId],
-    references: [id],
-    onDelete: Cascade
-  )
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   size   String
   color  String
@@ -123,21 +155,27 @@ model ProductVariant {
   @@index([productId, active])
 }
 
+// ============================================
+// CUSTOM WEBSITE IMAGES
+// ADMIN APPEARANCE SETTINGS
+// ============================================
+
 model SiteAsset {
   key       String   @id
   imageUrl  String
   updatedAt DateTime @updatedAt
 }
 
+// ============================================
+// CUSTOMER ORDERS
+// ============================================
+
 model Order {
-  id          String      @id @default(cuid())
-  reference   String      @unique
-  userId      String?
-  user        User?       @relation(
-    fields: [userId],
-    references: [id],
-    onDelete: SetNull
-  )
+  id        String  @id @default(cuid())
+  reference String  @unique
+  userId    String?
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   name        String
   email       String
@@ -157,47 +195,54 @@ model Order {
   @@index([userId, createdAt])
 }
 
+// ============================================
+// ORDER ITEMS
+// PURCHASED PRODUCTS / TICKETS
+// ============================================
+
 model OrderItem {
-  id        String @id @default(cuid())
-  orderId   String
-  order     Order  @relation(
-    fields: [orderId],
-    references: [id],
-    onDelete: Cascade
-  )
+  id      String @id @default(cuid())
+  orderId String
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   kind      ItemType
   catalogId String
   title     String
+
   size      String?
   color     String?
   variantId String?
+
   unitPrice Int
   quantity  Int
   subtotal  Int
 }
 
+// ============================================
+// FREE EVENT RESERVATIONS
+// ============================================
+
 model Rsvp {
   id      String @id @default(cuid())
   eventId String
-  event   Event  @relation(
-    fields: [eventId],
-    references: [id],
-    onDelete: Cascade
-  )
 
-  userId    String?
-  user      User?    @relation(
-    fields: [userId],
-    references: [id],
-    onDelete: SetNull
-  )
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  userId String?
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
   name      String
   email     String
   createdAt DateTime @default(now())
 
   @@unique([eventId, email])
 }
+
+// ============================================
+// KARMA CURATED STUDIO BOOKINGS
+// ============================================
 
 model Booking {
   id        String   @id @default(cuid())

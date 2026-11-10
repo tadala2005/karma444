@@ -1,17 +1,10 @@
 
 "use client";
 
-import {
-  useState
-} from "react";
+import { useState } from "react";
+import type { ChangeEvent } from "react";
 
-import {
-  ImagePlus,
-  LoaderCircle,
-  CheckCircle2
-} from "lucide-react";
-
-type Props = {
+type MediaUploadProps = {
   value?: string;
   onUploaded: (url: string) => void;
   label?: string;
@@ -23,135 +16,184 @@ export function MediaUpload({
   onUploaded,
   label = "UPLOAD IMAGE",
   compact = false
-}: Props) {
+}: MediaUploadProps) {
+  const [uploading, setUploading] =
+    useState(false);
 
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [recent, setRecent] = useState(false);
+  const [error, setError] =
+    useState("");
 
-  async function upload(file?: File) {
-    if (!file) return;
+  const [success, setSuccess] =
+    useState(false);
+
+  async function handleFile(
+    event: ChangeEvent<HTMLInputElement>
+  ) {
+    const file = event.target.files?.[0];
+
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
 
     setError("");
-    setRecent(false);
+    setSuccess(false);
 
-    const allowed = [
+    const allowedTypes = [
       "image/jpeg",
       "image/png",
       "image/webp"
     ];
 
-    if (!allowed.includes(file.type)) {
+    if (!allowedTypes.includes(file.type)) {
       setError(
-        "Choose a JPG, PNG or WebP image."
+        "Please select a JPG, PNG or WebP image."
       );
       return;
     }
 
     if (file.size > 4 * 1024 * 1024) {
       setError(
-        "Image must be smaller than 4 MB."
+        "Images must be smaller than 4 MB."
       );
       return;
     }
 
-    setBusy(true);
+    setUploading(true);
 
     try {
-      const body = new FormData();
+      const formData = new FormData();
 
-      body.append("file", file);
+      formData.append("file", file);
 
       const response = await fetch(
         "/api/admin/upload",
         {
           method: "POST",
-          body
+          body: formData
         }
       );
 
-      const data = await response.json();
+      const result = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          data.error || "Upload failed"
+          result.error || "Image upload failed"
         );
       }
 
-      onUploaded(data.url);
-      setRecent(true);
+      if (
+        typeof result.url !== "string" ||
+        !result.url.startsWith("https://")
+      ) {
+        throw new Error(
+          "The upload did not return a valid image URL."
+        );
+      }
+
+      onUploaded(result.url);
+      setSuccess(true);
 
     } catch (error) {
       setError(
         error instanceof Error
           ? error.message
-          : "Upload failed"
+          : "Unable to upload image"
       );
-
     } finally {
-      setBusy(false);
+      setUploading(false);
     }
   }
 
   return (
-    <div
-      className={
-        `media-upload ${
-          compact ? "media-upload-compact" : ""
-        }`
-      }
-    >
-      {value && (
+    <div className="media-upload">
+      {value && !compact && (
         <img
           src={value}
-          alt="Current image preview"
+          alt="Uploaded image preview"
           className="media-preview"
+          style={{
+            width: "100%",
+            maxWidth: 420,
+            aspectRatio: "16 / 9",
+            objectFit: "cover"
+          }}
         />
       )}
 
-      <label className="media-file-button">
+      <label
+        className="media-file-button"
+        style={{
+          position: "relative",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 10,
+          padding: "13px 18px",
+          background: "#111111",
+          color: "#ffffff",
+          fontSize: 12,
+          fontWeight: 700,
+          cursor: uploading
+            ? "wait"
+            : "pointer"
+        }}
+      >
         <input
           type="file"
           accept="image/jpeg,image/png,image/webp"
-          disabled={busy}
-          onChange={event => {
-            const file =
-              event.currentTarget.files?.[0];
-
-            void upload(file);
-
-            event.currentTarget.value = "";
+          onChange={handleFile}
+          disabled={uploading}
+          aria-label={label}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            opacity: 0,
+            cursor: "pointer"
           }}
         />
 
-        {busy ? (
-          <LoaderCircle
-            size={18}
-            className="spin"
-          />
-        ) : recent ? (
-          <CheckCircle2 size={18} />
-        ) : (
-          <ImagePlus size={18} />
-        )}
-
         <span>
-          {busy
-            ? "UPLOADING..."
+          {uploading
+            ? "UPLOADING IMAGE..."
             : value
               ? "REPLACE IMAGE"
               : label}
         </span>
       </label>
 
-      <small className="media-help">
+      <small
+        style={{
+          display: "block",
+          marginTop: 8,
+          color: "#777777"
+        }}
+      >
         JPG, PNG or WebP · Maximum 4 MB
       </small>
 
+      {success && (
+        <p
+          role="status"
+          style={{
+            color: "#24734b",
+            fontSize: 12
+          }}
+        >
+          Image uploaded successfully.
+        </p>
+      )}
+
       {error && (
         <p
-          className="error-msg"
           role="alert"
+          style={{
+            color: "#b42318",
+            fontSize: 12
+          }}
         >
           {error}
         </p>

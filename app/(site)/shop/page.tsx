@@ -1,3 +1,60 @@
-import {products} from '@/lib/catalog';import {ShopGrid} from '@/components/shop-grid';
-export const dynamic='force-dynamic';export const metadata={title:'Merch Store'};
-export default async function Page(){const p=await products();return <main><section className="shop-banner"><div className="main-container"><div><p className="eyebrow light">KARMA ORIGINALS / COLLECTION 001</p><h1>WEAR<br/>YOUR<br/><em>KARMA.</em></h1><p>Statement pieces for the ones who make their own rules.</p></div><div className="shop-banner-art"><img src="https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=1100&q=85" alt="Fashion collection imagery"/></div></div></section><section className="main-container section-block"><div className="subheading-row"><span>THE COLLECTION</span><span>{p.length} PIECES</span></div><ShopGrid products={p}/></section></main>}
+
+import { products } from "@/lib/catalog";
+import { getAppearance } from "@/lib/appearance";
+import { ShopGrid } from "@/components/shop-grid";
+
+export const dynamic = "force-dynamic";
+
+export const metadata = {
+  title: "The Drop — Karma Curated"
+};
+
+export default async function Page() {
+  const [items, visuals] = await Promise.all([
+    products(),
+    getAppearance()
+  ]);
+
+  return (
+    <main>
+      <section className="shop-banner">
+        <div className="main-container">
+          <div>
+            <p className="eyebrow light">
+              KARMA CURATED / THE DROP
+            </p>
+
+            <h1>
+              WEAR
+              <br />
+              YOUR
+              <br />
+              <em>KARMA.</em>
+            </h1>
+
+            <p>
+              Statement pieces for the
+              people defining their own culture.
+            </p>
+          </div>
+
+          <div className="shop-banner-art">
+            <img
+              src={visuals.shopHero}
+              alt="Karma Curated merchandise campaign"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="main-container section-block">
+        <div className="subheading-row">
+          <span>THE COLLECTION</span>
+          <span>{items.length} PIECES</span>
+        </div>
+
+        <ShopGrid products={items} />
+      </section>
+    </main>
+  );
+}

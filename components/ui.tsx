@@ -1,7 +1,192 @@
-import Link from 'next/link';
-import {ArrowUpRight} from 'lucide-react';
-import {dateLabel,money,timeLabel} from '@/lib/format';
-export function SectionTitle({label,title,href,action='VIEW ALL'}:{label:string,title:string,href?:string,action?:string}){return <div className="section-heading"><div><p className="eyebrow">{label}</p><h2>{title}</h2></div>{href&&<Link className="text-link" href={href}>{action}<ArrowUpRight size={17}/></Link>}</div>}
-export function ImageCard({image,title,label,href,sub}: {image:string,title:string,label:string,href:string,sub?:string}) {return <Link href={href} className="editorial-card"><div className="card-image"><img src={image} alt={title}/><span className="card-arrow"><ArrowUpRight size={21}/></span></div><div className="card-meta"><span>{label}</span>{sub&&<span>{sub}</span>}</div><h3>{title}</h3></Link>}
-export function ProductCard({product}:{product:{id:string,slug:string,name:string,image:string,price:number,stock:number,category:string}}){return <Link href={`/shop/${product.slug}`} className="product-card"><div className="product-image"><img src={product.image} alt={product.name}/><span className="product-tag">{product.stock>0?'KARMA ORIGINAL':'SOLD OUT'}</span></div><div className="product-bottom"><span className="eyebrow">{product.category}</span><h3>{product.name}</h3><span>{money(product.price)}</span></div></Link>}
-export function EventCard({event}:{event:{slug:string,title:string,image:string,date:Date|string,city:string,venue:string,price:number}}){return <Link href={`/events/${event.slug}`} className="event-card"><div className="event-photo"><img src={event.image} alt={event.title}/></div><div className="event-details"><div className="event-day"><b>{dateLabel(event.date).slice(0,2)}</b><span>{dateLabel(event.date).slice(3,6).toUpperCase()}</span></div><div className="event-text"><p className="eyebrow">{event.city} / {timeLabel(event.date)}</p><h3>{event.title}</h3><small>{event.venue}</small><strong>{event.price===0?'FREE RSVP':money(event.price)}</strong></div><ArrowUpRight size={22}/></div></Link>}
+
+import Link from "next/link";
+
+import {
+  ArrowUpRight
+} from "lucide-react";
+
+import {
+  dateLabel,
+  money,
+  timeLabel
+} from "@/lib/format";
+
+export function SectionTitle({
+  label,
+  title,
+  href,
+  action = "VIEW ALL"
+}: {
+  label: string;
+  title: string;
+  href?: string;
+  action?: string;
+}) {
+  return (
+    <div className="section-heading">
+      <div>
+        <p className="eyebrow">
+          {label}
+        </p>
+
+        <h2>{title}</h2>
+      </div>
+
+      {href && (
+        <Link
+          className="text-link"
+          href={href}
+        >
+          {action}
+          <ArrowUpRight size={17} />
+        </Link>
+      )}
+    </div>
+  );
+}
+
+export function ImageCard({
+  image,
+  title,
+  label,
+  href,
+  sub
+}: {
+  image: string;
+  title: string;
+  label: string;
+  href: string;
+  sub?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="editorial-card"
+    >
+      <div className="card-image">
+        <img
+          src={image}
+          alt={title}
+        />
+
+        <span className="card-arrow">
+          <ArrowUpRight size={21} />
+        </span>
+      </div>
+
+      <div className="card-meta">
+        <span>{label}</span>
+        {sub && <span>{sub}</span>}
+      </div>
+
+      <h3>{title}</h3>
+    </Link>
+  );
+}
+
+export function ProductCard({
+  product
+}: {
+  product: {
+    id: string;
+    slug: string;
+    name: string;
+    image: string;
+    price: number;
+    stock: number;
+    category: string;
+  };
+}) {
+  return (
+    <Link
+      href={`/shop/${product.slug}`}
+      className="product-card"
+    >
+      <div className="product-image">
+        <img
+          src={product.image}
+          alt={product.name}
+        />
+
+        <span className="product-tag">
+          {product.stock > 0
+            ? "KARMA CURATED"
+            : "SOLD OUT"}
+        </span>
+      </div>
+
+      <div className="product-bottom">
+        <span className="eyebrow">
+          {product.category}
+        </span>
+
+        <h3>{product.name}</h3>
+
+        <span>
+          {money(product.price)}
+        </span>
+      </div>
+    </Link>
+  );
+}
+
+export function EventCard({
+  event
+}: {
+  event: {
+    slug: string;
+    title: string;
+    image: string;
+    date: Date | string;
+    city: string;
+    venue: string;
+    price: number;
+  };
+}) {
+  return (
+    <Link
+      href={`/events/${event.slug}`}
+      className="event-card"
+    >
+      <div className="event-photo">
+        <img
+          src={event.image}
+          alt={event.title}
+        />
+      </div>
+
+      <div className="event-details">
+        <div className="event-day">
+          <b>
+            {dateLabel(event.date).slice(0, 2)}
+          </b>
+
+          <span>
+            {dateLabel(event.date)
+              .slice(3, 6)
+              .toUpperCase()}
+          </span>
+        </div>
+
+        <div className="event-text">
+          <p className="eyebrow">
+            {event.city}
+            {" / "}
+            {timeLabel(event.date)}
+          </p>
+
+          <h3>{event.title}</h3>
+          <small>{event.venue}</small>
+
+          <strong>
+            {event.price === 0
+              ? "FREE RSVP"
+              : money(event.price)}
+          </strong>
+        </div>
+
+        <ArrowUpRight size={22} />
+      </div>
+    </Link>
+  );
+}

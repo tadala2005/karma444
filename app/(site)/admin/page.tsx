@@ -1,18 +1,34 @@
+import Link from "next/link";
 
-import { redirect } from "next/navigation";
+import {
+  redirect
+} from "next/navigation";
 
-import { requireAdmin } from "@/lib/auth";
-import { prisma } from "@/lib/db";
-import { getAppearance } from "@/lib/appearance";
+import {
+  requireAdmin
+} from "@/lib/auth";
 
-import { AdminPanel } from "@/components/admin-panel";
+import {
+  prisma
+} from "@/lib/db";
+
+import {
+  getAppearance
+} from "@/lib/appearance";
+
+import {
+  AdminPanel
+} from "@/components/admin-panel";
 
 import {
   AdminBookingAction,
   AdminOrderAction
 } from "@/components/admin-operations";
 
-import { dateLabel, money } from "@/lib/format";
+import {
+  dateLabel,
+  money
+} from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -34,68 +50,105 @@ export default async function Page() {
     events,
     orders,
     bookings,
-    appearance
+    appearance,
+    productCount,
+    artistCount,
+    articleCount,
+    eventCount,
+    orderCount,
+    newBookingCount
   ] = await Promise.all([
     prisma.product.findMany({
       include: {
         variants: {
-          where: { active: true }
+          where: {
+            active: true
+          }
         }
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: {
+        createdAt: "desc"
+      },
       take: 200
     }),
 
     prisma.artist.findMany({
-      orderBy: { createdAt: "desc" },
+      orderBy: {
+        createdAt: "desc"
+      },
       take: 200
     }),
 
     prisma.article.findMany({
-      orderBy: { publishedAt: "desc" },
+      orderBy: {
+        publishedAt: "desc"
+      },
       take: 200
     }),
 
     prisma.event.findMany({
-      orderBy: { date: "desc" },
+      orderBy: {
+        date: "desc"
+      },
       take: 200
     }),
 
     prisma.order.findMany({
-      orderBy: { createdAt: "desc" },
+      orderBy: {
+        createdAt: "desc"
+      },
       take: 30,
-      include: { items: true }
+      include: {
+        items: true
+      }
     }),
 
     prisma.booking.findMany({
-      orderBy: { createdAt: "desc" },
+      orderBy: {
+        createdAt: "desc"
+      },
       take: 30
     }),
 
-    getAppearance()
+    getAppearance(),
+
+    prisma.product.count(),
+    prisma.artist.count(),
+    prisma.article.count(),
+    prisma.event.count(),
+    prisma.order.count(),
+
+    prisma.booking.count({
+      where: {
+        status: "NEW"
+      }
+    })
   ]);
 
-  function serialize(rows: any[]) {
+  function serialize(
+    rows: any[]
+  ) {
     return rows.map(row => ({
       ...row,
-      date: row.date?.toISOString?.(),
-      createdAt: row.createdAt?.toISOString?.(),
-      publishedAt: row.publishedAt?.toISOString?.()
+
+      date:
+        row.date?.toISOString?.(),
+
+      createdAt:
+        row.createdAt?.toISOString?.(),
+
+      publishedAt:
+        row.publishedAt?.toISOString?.()
     }));
   }
 
   const stats = [
-    ["PRODUCTS", products.length],
-    ["ARTISTS", artists.length],
-    ["STORIES", articles.length],
-    ["EVENTS", events.length],
-    ["ORDERS", orders.length],
-    [
-      "NEW BRIEFS",
-      bookings.filter(
-        booking => booking.status === "NEW"
-      ).length
-    ]
+    ["PRODUCTS", productCount],
+    ["ARTISTS", artistCount],
+    ["STORIES", articleCount],
+    ["EVENTS", eventCount],
+    ["ORDERS", orderCount],
+    ["NEW BRIEFS", newBookingCount]
   ] as const;
 
   return (
@@ -110,10 +163,31 @@ export default async function Page() {
       </h1>
 
       <p className="admin-intro">
-        Manage your website images, artists,
-        editorial, events, merchandise
-        and customer orders.
+        Manage website imagery, artists,
+        editorial, events, merchandise,
+        orders and creative enquiries.
       </p>
+
+      <div
+        className="inline-links"
+        style={{
+          marginBottom: 36
+        }}
+      >
+        <Link
+          href="/admin/deliveries"
+          className="btn orange"
+        >
+          DELIVERY MANAGEMENT
+        </Link>
+
+        <Link
+          href="/shop"
+          className="btn outline"
+        >
+          VIEW SHOP
+        </Link>
+      </div>
 
       <div className="admin-stats">
         {stats.map(([label, value]) => (
@@ -158,15 +232,24 @@ export default async function Page() {
                 <tr key={order.id}>
                   <td>
                     <small>
-                      {dateLabel(order.createdAt)}
+                      {dateLabel(
+                        order.createdAt
+                      )}
                     </small>
-                    <div>{order.reference}</div>
+
+                    <div>
+                      {order.reference}
+                    </div>
                   </td>
 
                   <td>
                     {order.name}
+
                     <br />
-                    <small>{order.email}</small>
+
+                    <small>
+                      {order.email}
+                    </small>
 
                     {order.items.map(item => (
                       <small
@@ -177,20 +260,26 @@ export default async function Page() {
                         }}
                       >
                         {item.quantity} × {item.title}
+
                         {item.size || item.color
-                          ? ` · ${
-                              [
-                                item.size,
-                                item.color
-                              ].filter(Boolean).join(" / ")
-                            }`
+                          ? ` · ${[
+                              item.size,
+                              item.color
+                            ]
+                              .filter(Boolean)
+                              .join(" / ")}`
                           : ""}
                       </small>
                     ))}
                   </td>
 
-                  <td>{money(order.total)}</td>
-                  <td>{order.status}</td>
+                  <td>
+                    {money(order.total)}
+                  </td>
+
+                  <td>
+                    {order.status}
+                  </td>
 
                   <td>
                     <AdminOrderAction
@@ -204,7 +293,7 @@ export default async function Page() {
           </table>
         </div>
 
-        {!orders.length && (
+        {orders.length === 0 && (
           <p>No orders yet.</p>
         )}
       </section>
@@ -232,19 +321,29 @@ export default async function Page() {
               {bookings.map(booking => (
                 <tr key={booking.id}>
                   <td>
-                    {dateLabel(booking.createdAt)}
+                    {dateLabel(
+                      booking.createdAt
+                    )}
                   </td>
 
                   <td>
                     {booking.name}
+
                     <br />
-                    <small>{booking.email}</small>
+
+                    <small>
+                      {booking.email}
+                    </small>
                   </td>
 
                   <td>
                     {booking.service}
+
                     <br />
-                    <small>{booking.budget}</small>
+
+                    <small>
+                      {booking.budget}
+                    </small>
                   </td>
 
                   <td className="brief-cell">
@@ -263,7 +362,7 @@ export default async function Page() {
           </table>
         </div>
 
-        {!bookings.length && (
+        {bookings.length === 0 && (
           <p>No enquiries yet.</p>
         )}
       </section>

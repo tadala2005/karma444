@@ -77,19 +77,25 @@ export function CheckoutForm({
     0
   );
 
-  function update<K extends keyof CheckoutDetails>(
-    key: K,
-    value: CheckoutDetails[K]
-  ) {
-    if (key === "name" || key === "email") {
-      edited.current[key] = true;
-    }
-
-    setForm(previous => ({
-      ...previous,
-      [key]: value
-    }));
+  
+function update<K extends keyof CheckoutDetails>(
+  key: K,
+  value: CheckoutDetails[K]
+) {
+  if (key === "name") {
+    edited.current.name = true;
   }
+
+  if (key === "email") {
+    edited.current.email = true;
+  }
+
+  setForm(previous => ({
+    ...previous,
+    [key]: value
+  }));
+}
+
 
   function changeDeliveryMethod(value: string) {
     if (value === "NONE") {

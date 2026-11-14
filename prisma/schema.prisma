@@ -1,3 +1,4 @@
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -107,11 +108,7 @@ model Product {
 model ProductVariant {
   id        String  @id @default(cuid())
   productId String
-  product   Product @relation(
-    fields: [productId],
-    references: [id],
-    onDelete: Cascade
-  )
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   size   String
   color  String
@@ -133,11 +130,7 @@ model Order {
   reference String  @unique
   userId    String?
 
-  user User? @relation(
-    fields: [userId],
-    references: [id],
-    onDelete: SetNull
-  )
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   name    String
   email   String
@@ -145,17 +138,11 @@ model Order {
   address String
   city    String
 
-  // Delivery is a customer preference.
-  // No carrier booking or shipping charge
-  // is performed automatically.
   deliveryMethod        String  @default("NONE")
   deliveryOther         String?
   deliveryNotes         String?
   deliveryTermsAccepted Boolean @default(false)
 
-  // Total currently represents the
-  // products and paid event tickets.
-  // Unquoted delivery fees are excluded.
   total       Int
   currency    String      @default("MWK")
   status      OrderStatus @default(PENDING)
@@ -174,11 +161,7 @@ model OrderItem {
   id      String @id @default(cuid())
   orderId String
 
-  order Order @relation(
-    fields: [orderId],
-    references: [id],
-    onDelete: Cascade
-  )
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   kind      ItemType
   catalogId String
@@ -195,19 +178,11 @@ model Rsvp {
   id      String @id @default(cuid())
   eventId String
 
-  event Event @relation(
-    fields: [eventId],
-    references: [id],
-    onDelete: Cascade
-  )
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   userId String?
 
-  user User? @relation(
-    fields: [userId],
-    references: [id],
-    onDelete: SetNull
-  )
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   name      String
   email     String

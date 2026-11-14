@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -7,10 +6,15 @@ import {
 } from "react";
 
 import {
+  useRouter
+} from "next/navigation";
+
+import {
   ShoppingBag,
   Check,
   Minus,
-  Plus
+  Plus,
+  ArrowRight
 } from "lucide-react";
 
 import { useCart } from "./cart-store";
@@ -65,6 +69,8 @@ export function AddToCart({
   kind?: "PRODUCT" | "TICKET";
   variants?: Variant[];
 }) {
+  const router = useRouter();
+
   const [size, setSize] = useState("");
   const [color, setColor] = useState("");
   const [qty, setQty] = useState(1);
@@ -116,26 +122,29 @@ export function AddToCart({
         )
     )
     .reduce(
-      (total, existing) =>
-        total + existing.quantity,
+      (sum, existing) =>
+        sum + existing.quantity,
       0
     );
 
-  const stock = kind === "TICKET"
-    ? item.remaining ?? 0
-    : variantsRequired
-      ? selectedVariant?.stock ?? 0
-      : item.stock ?? 0;
+  const stock =
+    kind === "TICKET"
+      ? item.remaining ?? 0
+      : variantsRequired
+        ? selectedVariant?.stock ?? 0
+        : item.stock ?? 0;
 
   const available = Math.max(
     0,
     stock - alreadyInBag
   );
 
-  const hasChoice = !variantsRequired ||
+  const hasChoice =
+    !variantsRequired ||
     Boolean(selectedVariant);
 
-  const canAdd = hasChoice &&
+  const canAdd =
+    hasChoice &&
     available >= qty &&
     qty >= 1;
 
@@ -152,26 +161,41 @@ export function AddToCart({
     setAdded(false);
   }
 
-  function addItem() {
-    if (!canAdd) return;
+  function addItem(): boolean {
+    if (!canAdd) return false;
 
     add({
       id: item.id,
       kind,
       slug: item.slug,
-      title: item.name || item.title || "",
+      title:
+        item.name ||
+        item.title ||
+        "",
       image: item.image,
       unitPrice: item.price,
       quantity: qty,
-      size: variantsRequired ? size : undefined,
-      color: variantsRequired ? color : undefined
+
+      size: variantsRequired
+        ? size
+        : undefined,
+
+      color: variantsRequired
+        ? color
+        : undefined
     });
 
     setAdded(true);
 
-    setTimeout(() => {
-      setAdded(false);
-    }, 1500);
+    return true;
+  }
+
+  function fastCheckout() {
+    if (!addItem()) return;
+
+    // Includes other existing bag items.
+    // The entire bag is shown at checkout.
+    router.push("/checkout");
   }
 
   return (
@@ -194,11 +218,17 @@ export function AddToCart({
                     key={option}
                     type="button"
                     disabled={!inStock}
-                    aria-pressed={size === option}
-                    className={
-                      size === option ? "selected" : ""
+                    aria-pressed={
+                      size === option
                     }
-                    onClick={() => chooseSize(option)}
+                    className={
+                      size === option
+                        ? "selected"
+                        : ""
+                    }
+                    onClick={() =>
+                      chooseSize(option)
+                    }
                   >
                     {option}
                   </button>
@@ -222,17 +252,20 @@ export function AddToCart({
                   SWATCHES[
                     variant.color.toUpperCase()
                   ] ||
-                  (/^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(
-                    variant.color
-                  )
-                    ? variant.color
-                    : "#888888");
+                  (
+                    /^#[0-9a-f]{3}([0-9a-f]{3})?$/i
+                      .test(variant.color)
+                      ? variant.color
+                      : "#888888"
+                  );
 
                 return (
                   <button
                     key={variant.id}
                     type="button"
-                    disabled={variant.stock <= 0}
+                    disabled={
+                      variant.stock <= 0
+                    }
                     aria-pressed={
                       color === variant.color
                     }
@@ -244,7 +277,9 @@ export function AddToCart({
                       }`
                     }
                     onClick={() =>
-                      chooseColor(variant.color)
+                      chooseColor(
+                        variant.color
+                      )
                     }
                   >
                     <i
@@ -275,12 +310,13 @@ export function AddToCart({
         </>
       )}
 
-      {isHeadwear && variants.length === 0 && (
-        <p className="error-msg">
-          This product is not yet configured
-          with size and color options.
-        </p>
-      )}
+      {isHeadwear &&
+        variants.length === 0 && (
+          <p className="error-msg">
+            This product needs size
+            and color configuration.
+          </p>
+        )}
 
       <div className="purchase-control">
         <div className="quantity-control">
@@ -288,7 +324,9 @@ export function AddToCart({
             type="button"
             aria-label="Decrease quantity"
             onClick={() =>
-              setQty(Math.max(1, qty - 1))
+              setQty(
+                Math.max(1, qty - 1)
+              )
             }
           >
             <Minus size={16} />
@@ -301,13 +339,13 @@ export function AddToCart({
             aria-label="Increase quantity"
             onClick={() =>
               setQty(
-                Math.max(
-                  1,
-                  Math.min(
-                    10,
-                    available,
-                    qty + 1
-                  )
+                Math.min(
+                  10,
+                  Math.max(
+                    qty,
+                    available
+                  ),
+                  qty + 1
                 )
               )
             }
@@ -338,10 +376,28 @@ export function AddToCart({
         </button>
       </div>
 
+      <button
+        type="button"
+        disabled={!canAdd}
+        className="btn orange fill"
+        style={{
+          width: "100%",
+          marginTop: 12
+        }}
+        onClick={fastCheckout}
+      >
+        FAST CHECKOUT
+        <ArrowRight size={18} />
+      </button>
+
       <p className="subtle">
         {variantsRequired
-          ? "Choose your size and color before checkout."
-          : "Review your order before secure payment."}
+          ? "Choose your size and color first."
+          : "Confirm your selection before payment."}
+        {" "}
+        Fast checkout includes other items
+        already in your bag.
+        No account is required.
       </p>
     </div>
   );

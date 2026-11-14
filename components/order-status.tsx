@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -17,8 +16,17 @@ import {
   ArrowRight
 } from "lucide-react";
 
-import { money } from "@/lib/format";
-import { useCart } from "./cart-store";
+import {
+  money
+} from "@/lib/format";
+
+import {
+  deliveryLabel
+} from "@/lib/delivery";
+
+import {
+  useCart
+} from "./cart-store";
 
 type Order = {
   reference: string;
@@ -26,15 +34,27 @@ type Order = {
   total: number;
   createdAt: string;
 
+  physical: boolean;
+  deliveryMethod: string;
+  deliveryOther?: string | null;
+  deliveryQuotedSeparately: boolean;
+
   items: {
     id: string;
     title: string;
     quantity: number;
     subtotal: number;
-    size?: string;
-    color?: string;
+    size?: string | null;
+    color?: string | null;
   }[];
 };
+
+const paidStatuses = [
+  "PAID",
+  "PROCESSING",
+  "SHIPPED",
+  "DELIVERED"
+];
 
 export function OrderStatus({
   reference
@@ -47,49 +67,58 @@ export function OrderStatus({
   const [loading, setLoading] =
     useState(true);
 
-  const [error, setError] = useState("");
+  const [error, setError] =
+    useState("");
 
   const [verifying, setVerifying] =
     useState(false);
 
   const firstCheck = useRef(false);
-  const clear = useCart(state => state.clear);
+
+  const clear =
+    useCart(state => state.clear);
 
   async function load() {
-    if (!reference) return;
+    if (!reference) {
+      setLoading(false);
+      return;
+    }
 
     try {
       const response = await fetch(
-        `/api/orders/${encodeURIComponent(reference)}`,
-        { cache: "no-store" }
+        `/api/orders/${encodeURIComponent(
+          reference
+        )}`,
+        {
+          cache: "no-store"
+        }
       );
 
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          data.error || "Order unavailable"
+          data.error ||
+          "Order unavailable"
         );
       }
 
       setOrder(data.order);
+      setError("");
 
-      const complete = [
-        "PAID",
-        "PAID_REVIEW",
-        "PROCESSING",
-        "SHIPPED",
-        "DELIVERED"
-      ];
-
-      if (complete.includes(data.order.status)) {
+      if (
+        [
+          ...paidStatuses,
+          "PAID_REVIEW"
+        ].includes(data.order.status)
+      ) {
         clear();
       }
 
-    } catch (error) {
+    } catch (caught) {
       setError(
-        error instanceof Error
-          ? error.message
+        caught instanceof Error
+          ? caught.message
           : "Order unavailable"
       );
 
@@ -107,9 +136,11 @@ export function OrderStatus({
         "/api/payment/verify",
         {
           method: "POST",
+
           headers: {
             "Content-Type": "application/json"
           },
+
           body: JSON.stringify({
             reference
           })
@@ -120,17 +151,18 @@ export function OrderStatus({
 
       if (!response.ok) {
         throw new Error(
-          data.error || "Verification failed"
+          data.error ||
+          "Verification failed"
         );
       }
 
       await load();
 
-    } catch (error) {
+    } catch (caught) {
       setError(
-        error instanceof Error
-          ? error.message
-          : "Verification failed"
+        caught instanceof Error
+          ? caught.message
+          : "Payment verification unavailable"
       );
 
     } finally {
@@ -139,6 +171,7 @@ export function OrderStatus({
   }
 
   useEffect(() => {
+    firstCheck.current = false;
     void load();
   }, [reference]);
 
@@ -154,7 +187,7 @@ export function OrderStatus({
 
     const timer = setTimeout(
       () => void verify(),
-      1200
+      1500
     );
 
     return () => clearTimeout(timer);
@@ -164,6 +197,7 @@ export function OrderStatus({
     return (
       <main className="main-container empty-state">
         <h1>ORDER NOT FOUND.</h1>
+
         <Link
           href="/shop"
           className="btn dark"
@@ -182,13 +216,6 @@ export function OrderStatus({
     );
   }
 
-  const paidStatuses = [
-    "PAID",
-    "PROCESSING",
-    "SHIPPED",
-    "DELIVERED"
-  ];
-
   return (
     <main className="main-container order-page">
       <p className="eyebrow">
@@ -198,7 +225,9 @@ export function OrderStatus({
       {order ? (
         <>
           <div className="order-hero">
-            {paidStatuses.includes(order.status) ? (
+            {paidStatuses.includes(
+              order.status
+            ) ? (
               <CheckCircle2 size={46} />
             ) : order.status === "PENDING" ? (
               <Clock3 size={46} />
@@ -213,17 +242,22 @@ export function OrderStatus({
                   ? "PAYMENT RECEIVED."
                   : order.status === "FAILED"
                     ? "PAYMENT NOT COMPLETED."
-                    : paidStatuses.includes(order.status)
+                    : paidStatuses.includes(
+                        order.status
+                      )
                       ? "YOUR KARMA IS COMING."
-                      : order.status.replace(/_/g, " ")}
+                      : order.status.replace(
+                          /_/g,
+                          " "
+                        )}
             </h1>
 
             <p>
               {order.status === "PAID_REVIEW"
-                ? "Your payment was verified, but stock requires manual review. Do not pay again. Karma Curated will contact you."
+                ? "Payment was verified, but this order requires manual review. Do not pay again. Karma Curated will contact you."
                 : order.status === "PENDING"
-                  ? "We haven't confirmed your payment yet. Use Check Payment to verify."
-                  : "Keep your order reference for support and tracking."}
+                  ? "Payment has not been confirmed yet. Please check your payment status."
+                  : "Keep this order reference for support and tracking."}
             </p>
           </div>
 
@@ -259,21 +293,61 @@ export function OrderStatus({
             ))}
 
             <div className="summary-total">
-              <span>TOTAL</span>
+              <span>ITEMS TOTAL</span>
+
               <b>{money(order.total)}</b>
             </div>
 
+            {order.physical && (
+              <>
+                <div className="summary-row">
+                  <span>
+                    Preferred delivery
+                  </span>
+
+                  <b>
+                    {deliveryLabel(
+                      order.deliveryMethod,
+                      order.deliveryOther
+                    )}
+                  </b>
+                </div>
+
+                {order.deliveryQuotedSeparately && (
+                  <p
+                    className="subtle"
+                    style={{
+                      fontSize: 12,
+                      lineHeight: 1.7,
+                      marginTop: 12
+                    }}
+                  >
+                    Delivery is not included
+                    in the amount paid online.
+                    Karma Curated will confirm
+                    the delivery fee separately
+                    before dispatch.
+                  </p>
+                )}
+              </>
+            )}
+
             <div className="summary-row">
-              <span>STATUS</span>
+              <span>ORDER STATUS</span>
+
               <b>
-                {order.status.replace(/_/g, " ")}
+                {order.status.replace(
+                  /_/g,
+                  " "
+                )}
               </b>
             </div>
           </div>
 
-          {["PENDING", "FAILED"].includes(
-            order.status
-          ) && (
+          {[
+            "PENDING",
+            "FAILED"
+          ].includes(order.status) && (
             <button
               type="button"
               className="btn dark"
@@ -295,7 +369,10 @@ export function OrderStatus({
       )}
 
       {error && order && (
-        <p className="error-msg">
+        <p
+          className="error-msg"
+          role="alert"
+        >
           {error}
         </p>
       )}

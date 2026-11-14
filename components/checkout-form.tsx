@@ -1,13 +1,9 @@
+
 "use client";
 
-import {
-  useEffect,
-  useRef,
-  useState
-} from "react";
-
+import { useEffect, useRef, useState } from "react";
+import type { FormEvent } from "react";
 import Link from "next/link";
-
 import {
   ArrowRight,
   LockKeyhole,
@@ -22,13 +18,8 @@ import {
   DELIVERY_DISCLOSURE
 } from "@/lib/delivery";
 
-import type {
-  DeliveryMethod
-} from "@/lib/delivery";
-
-import type {
-  PaymentMode
-} from "@/lib/commerce";
+import type { DeliveryMethod } from "@/lib/delivery";
+import type { PaymentMode } from "@/lib/commerce";
 
 type CheckoutDetails = {
   name: string;
@@ -42,7 +33,7 @@ type CheckoutDetails = {
   deliveryTermsAccepted: boolean;
 };
 
-const emptyDetails: CheckoutDetails = {
+const initialDetails: CheckoutDetails = {
   name: "",
   email: "",
   phone: "",
@@ -67,7 +58,7 @@ export function CheckoutForm({
   const [loggedIn, setLoggedIn] = useState(false);
 
   const [form, setForm] =
-    useState<CheckoutDetails>(emptyDetails);
+    useState<CheckoutDetails>(initialDetails);
 
   const edited = useRef({
     name: false,
@@ -76,7 +67,7 @@ export function CheckoutForm({
 
   const paymentReady = mode !== "disabled";
 
-  const physical = items.some(
+  const hasMerchandise = items.some(
     item => item.kind === "PRODUCT"
   );
 
@@ -98,6 +89,22 @@ export function CheckoutForm({
       ...previous,
       [key]: value
     }));
+  }
+
+  function changeDeliveryMethod(value: string) {
+    if (value === "NONE") {
+      update("deliveryMethod", "NONE");
+      return;
+    }
+
+    const option = DELIVERY_OPTIONS.find(
+      entry => entry.value === value
+    );
+
+    update(
+      "deliveryMethod",
+      option?.value ?? "NONE"
+    );
   }
 
   useEffect(() => {
@@ -149,7 +156,7 @@ export function CheckoutForm({
   }, []);
 
   async function submit(
-    event: React.FormEvent<HTMLFormElement>
+    event: FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
 
@@ -162,20 +169,20 @@ export function CheckoutForm({
       return;
     }
 
-    if (!items.length) {
+    if (items.length === 0) {
       setError("Your bag is empty.");
       return;
     }
 
     if (
-      physical &&
+      hasMerchandise &&
       (
         form.deliveryMethod === "NONE" ||
         !form.deliveryTermsAccepted
       )
     ) {
       setError(
-        "Choose a delivery option and confirm the delivery terms."
+        "Choose a delivery option and accept the delivery terms."
       );
       return;
     }
@@ -187,19 +194,19 @@ export function CheckoutForm({
       const customer = {
         ...form,
 
-        deliveryMethod: physical
+        deliveryMethod: hasMerchandise
           ? form.deliveryMethod
           : "NONE",
 
-        deliveryOther: physical
+        deliveryOther: hasMerchandise
           ? form.deliveryOther
           : "",
 
-        deliveryNotes: physical
+        deliveryNotes: hasMerchandise
           ? form.deliveryNotes
           : "",
 
-        deliveryTermsAccepted: physical
+        deliveryTermsAccepted: hasMerchandise
           ? form.deliveryTermsAccepted
           : false
       };
@@ -228,33 +235,32 @@ export function CheckoutForm({
         }
       );
 
-      const data = await response.json();
+      const result = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          data.error ||
+          result.error ||
           "Checkout could not be started."
         );
       }
 
       if (
-        typeof data.checkoutUrl !== "string"
+        typeof result.checkoutUrl !== "string"
       ) {
         throw new Error(
-          "Payment link was not returned."
+          "The payment provider did not return a checkout URL."
         );
       }
 
-      const checkoutUrl = new URL(
-        data.checkoutUrl
+      const destination = new URL(
+        result.checkoutUrl
       );
 
       if (
-        checkoutUrl.protocol !== "https:" ||
+        destination.protocol !== "https:" ||
         !(
-          checkoutUrl.hostname ===
-            "paychangu.com" ||
-          checkoutUrl.hostname.endsWith(
+          destination.hostname === "paychangu.com" ||
+          destination.hostname.endsWith(
             ".paychangu.com"
           )
         )
@@ -265,14 +271,14 @@ export function CheckoutForm({
       }
 
       window.location.assign(
-        checkoutUrl.toString()
+        destination.toString()
       );
 
     } catch (caught) {
       setError(
         caught instanceof Error
           ? caught.message
-          : "Checkout is temporarily unavailable."
+          : "Checkout is unavailable."
       );
 
       setBusy(false);
@@ -289,14 +295,14 @@ export function CheckoutForm({
     );
   }
 
-  if (!items.length) {
+  if (items.length === 0) {
     return (
       <main className="main-container empty-state">
         <h1>YOUR BAG IS EMPTY.</h1>
 
         <Link
-          href="/shop"
           className="btn dark"
+          href="/shop"
         >
           EXPLORE THE SHOP
         </Link>
@@ -317,8 +323,8 @@ export function CheckoutForm({
 
       {mode === "test" && (
         <div className="error-msg" role="status">
-          TEST PAYMENT MODE — transactions must
-          not be treated as real customer purchases.
+          TEST PAYMENT MODE — do not treat
+          test orders as real purchases.
         </div>
       )}
 
@@ -328,10 +334,10 @@ export function CheckoutForm({
           role="status"
           style={{ marginBottom: 24 }}
         >
-          Online payments are currently unavailable.
-          You can prepare your details, but you
-          cannot submit an order until the
-          payment gateway is activated.
+          Online payments are not available yet.
+          You can prepare your details,
+          but cannot submit an order until
+          payments are activated.
         </div>
       )}
 
@@ -344,13 +350,14 @@ export function CheckoutForm({
 
           <p className="subtle">
             {loggedIn
-              ? "Your account details have been filled in. You can edit them for this order."
-              : "No account needed. Checkout as a guest."}
+              ? "Your account name and email are prefilled; you can edit them for this order."
+              : "No account required. Checkout as a guest."}
           </p>
 
           <div className="form-grid">
             <label>
               FULL NAME
+
               <input
                 required
                 minLength={2}
@@ -368,6 +375,7 @@ export function CheckoutForm({
 
             <label>
               EMAIL ADDRESS
+
               <input
                 required
                 type="email"
@@ -385,6 +393,7 @@ export function CheckoutForm({
 
             <label>
               PHONE NUMBER
+
               <input
                 required
                 type="tel"
@@ -402,9 +411,10 @@ export function CheckoutForm({
               />
             </label>
 
-            {physical && (
+            {hasMerchandise && (
               <label>
                 CITY / TOWN
+
                 <input
                   required
                   maxLength={80}
@@ -422,23 +432,20 @@ export function CheckoutForm({
             )}
           </div>
 
-          {physical && (
-            <section
-              style={{ marginTop: 42 }}
-            >
+          {hasMerchandise && (
+            <section style={{ marginTop: 42 }}>
               <h2>02 / DELIVERY</h2>
 
               <div className="form-grid">
                 <label className="span-two">
                   PREFERRED DELIVERY SERVICE
+
                   <select
                     required
                     value={form.deliveryMethod}
                     onChange={event =>
-                      update(
-                        "deliveryMethod",
-                        event.target.value
-                          as DeliveryMethod
+                      changeDeliveryMethod(
+                        event.currentTarget.value
                       )
                     }
                     style={{
@@ -470,6 +477,7 @@ export function CheckoutForm({
                 {form.deliveryMethod === "OTHER" && (
                   <label className="span-two">
                     NAME OF YOUR COURIER
+
                     <input
                       required
                       maxLength={100}
@@ -488,11 +496,12 @@ export function CheckoutForm({
                 {form.deliveryMethod !== "PICKUP" && (
                   <label className="span-two">
                     DELIVERY ADDRESS / LOCATION
+
                     <textarea
                       required
                       rows={3}
                       maxLength={250}
-                      placeholder="Area, street, landmark, and collection details"
+                      placeholder="Area, street, landmark, or postal branch"
                       value={form.address}
                       onChange={event =>
                         update(
@@ -506,10 +515,11 @@ export function CheckoutForm({
 
                 <label className="span-two">
                   DELIVERY INSTRUCTIONS (OPTIONAL)
+
                   <textarea
                     rows={3}
                     maxLength={500}
-                    placeholder="Preferred branch, location, or special instructions"
+                    placeholder="Preferred branch or special instructions"
                     value={form.deliveryNotes}
                     onChange={event =>
                       update(
@@ -525,7 +535,7 @@ export function CheckoutForm({
                 className="payment-method"
                 style={{
                   marginTop: 22,
-                  alignItems: "start"
+                  alignItems: "flex-start"
                 }}
               >
                 <div>
@@ -540,9 +550,9 @@ export function CheckoutForm({
                   flexDirection: "row",
                   alignItems: "flex-start",
                   gap: 12,
-                  lineHeight: 1.7,
                   marginTop: 16,
                   fontSize: 12,
+                  lineHeight: 1.7,
                   letterSpacing: 0
                 }}
               >
@@ -566,15 +576,15 @@ export function CheckoutForm({
                 />
 
                 I understand that delivery is not
-                included in the online total and
-                any courier fee must be confirmed
+                included in the online total.
+                Any delivery fee must be agreed
                 separately before dispatch.
               </label>
             </section>
           )}
 
           <h2 className="payment-heading">
-            {physical ? "03" : "02"} / PAYMENT
+            {hasMerchandise ? "03" : "02"} / PAYMENT
           </h2>
 
           <div className="payment-method">
@@ -588,7 +598,7 @@ export function CheckoutForm({
               <p>
                 {paymentReady
                   ? "Continue to the payment provider to complete your purchase."
-                  : "Secure online payment will become available after setup."}
+                  : "Secure online payment will be available after setup."}
               </p>
             </div>
 
@@ -596,7 +606,10 @@ export function CheckoutForm({
           </div>
 
           {error && (
-            <p className="error-msg" role="alert">
+            <p
+              className="error-msg"
+              role="alert"
+            >
               {error}
             </p>
           )}
@@ -607,7 +620,7 @@ export function CheckoutForm({
             disabled={
               busy ||
               !paymentReady ||
-              !items.length
+              items.length === 0
             }
           >
             {busy
@@ -646,9 +659,7 @@ export function CheckoutForm({
               ].join("-")}
             >
               <span>
-                {item.title}
-                {" × "}
-                {item.quantity}
+                {item.title} × {item.quantity}
 
                 {(item.size || item.color) && (
                   <small
@@ -673,7 +684,7 @@ export function CheckoutForm({
             </div>
           ))}
 
-          {physical && (
+          {hasMerchandise && (
             <div className="summary-row">
               <span>Delivery</span>
               <b>Quoted separately</b>
@@ -682,7 +693,7 @@ export function CheckoutForm({
 
           <div className="summary-total">
             <span>
-              {physical
+              {hasMerchandise
                 ? "ITEMS TOTAL"
                 : "TOTAL"}
             </span>
@@ -690,7 +701,7 @@ export function CheckoutForm({
             <b>{money(subtotal)}</b>
           </div>
 
-          {physical && (
+          {hasMerchandise && (
             <p
               className="subtle"
               style={{
@@ -698,15 +709,14 @@ export function CheckoutForm({
                 lineHeight: 1.7
               }}
             >
-              The amount payable through
-              PayChangu excludes any
-              subsequently agreed delivery fee.
+              The PayChangu amount excludes
+              any separately agreed delivery fee.
             </p>
           )}
 
           <Link
-            href="/cart"
             className="plain-back"
+            href="/cart"
           >
             EDIT BAG
           </Link>

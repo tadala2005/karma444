@@ -1,5 +1,6 @@
-
-import { prisma } from "@/lib/db";
+import {
+  prisma
+} from "@/lib/db";
 
 import {
   demoArtists,
@@ -8,8 +9,29 @@ import {
   demoProducts
 } from "./demo";
 
+function hasDatabase(): boolean {
+  return Boolean(
+    process.env.DATABASE_URL
+  );
+}
+
+function sampleProducts() {
+  return demoProducts.map(product => ({
+    ...product,
+
+    gallery: [] as string[],
+
+    variants: [] as {
+      id: string;
+      size: string;
+      color: string;
+      stock: number;
+    }[]
+  }));
+}
+
 export async function artists() {
-  if (!process.env.DATABASE_URL) {
+  if (!hasDatabase()) {
     return demoArtists;
   }
 
@@ -22,7 +44,7 @@ export async function artists() {
 }
 
 export async function articles() {
-  if (!process.env.DATABASE_URL) {
+  if (!hasDatabase()) {
     return demoArticles;
   }
 
@@ -35,35 +57,31 @@ export async function articles() {
 }
 
 export async function events() {
-  if (!process.env.DATABASE_URL) {
+  if (!hasDatabase()) {
     return demoEvents;
   }
 
   return prisma.event.findMany({
-    orderBy: { date: "asc" }
+    orderBy: {
+      date: "asc"
+    }
   });
 }
 
 export async function products() {
-  if (!process.env.DATABASE_URL) {
-    return demoProducts.map(product => ({
-      ...product,
-      gallery: [] as string[],
-      variants: [] as {
-        id: string;
-        size: string;
-        color: string;
-        stock: number;
-      }[]
-    }));
+  if (!hasDatabase()) {
+    return sampleProducts();
   }
 
   return prisma.product.findMany({
     include: {
       variants: {
-        where: { active: true }
+        where: {
+          active: true
+        }
       }
     },
+
     orderBy: [
       { featured: "desc" },
       { createdAt: "desc" }
@@ -71,26 +89,74 @@ export async function products() {
   });
 }
 
-export async function artist(slug: string) {
-  return (await artists()).find(
-    entry => entry.slug === slug
-  );
+export async function artist(
+  slug: string
+) {
+  if (!hasDatabase()) {
+    return demoArtists.find(
+      item => item.slug === slug
+    ) ?? null;
+  }
+
+  return prisma.artist.findUnique({
+    where: {
+      slug
+    }
+  });
 }
 
-export async function article(slug: string) {
-  return (await articles()).find(
-    entry => entry.slug === slug
-  );
+export async function article(
+  slug: string
+) {
+  if (!hasDatabase()) {
+    return demoArticles.find(
+      item => item.slug === slug
+    ) ?? null;
+  }
+
+  return prisma.article.findUnique({
+    where: {
+      slug
+    }
+  });
 }
 
-export async function event(slug: string) {
-  return (await events()).find(
-    entry => entry.slug === slug
-  );
+export async function event(
+  slug: string
+) {
+  if (!hasDatabase()) {
+    return demoEvents.find(
+      item => item.slug === slug
+    ) ?? null;
+  }
+
+  return prisma.event.findUnique({
+    where: {
+      slug
+    }
+  });
 }
 
-export async function product(slug: string) {
-  return (await products()).find(
-    entry => entry.slug === slug
-  );
+export async function product(
+  slug: string
+) {
+  if (!hasDatabase()) {
+    return sampleProducts().find(
+      item => item.slug === slug
+    ) ?? null;
+  }
+
+  return prisma.product.findUnique({
+    where: {
+      slug
+    },
+
+    include: {
+      variants: {
+        where: {
+          active: true
+        }
+      }
+    }
+  });
 }

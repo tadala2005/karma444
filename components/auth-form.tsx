@@ -1,7 +1,9 @@
-
 "use client";
 
-import { useState } from "react";
+import {
+  useState
+} from "react";
+
 import Link from "next/link";
 
 import {
@@ -9,7 +11,11 @@ import {
   useSearchParams
 } from "next/navigation";
 
-import { ArrowRight } from "lucide-react";
+import {
+  ArrowRight,
+  Eye,
+  EyeOff
+} from "lucide-react";
 
 type Props = {
   mode: "login" | "register";
@@ -23,8 +29,14 @@ export function AuthForm({
   const router = useRouter();
   const params = useSearchParams();
 
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [busy, setBusy] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  const [visible, setVisible] =
+    useState(false);
 
   const [form, setForm] = useState({
     name: "",
@@ -45,9 +57,11 @@ export function AuthForm({
         `/api/auth/${mode}`,
         {
           method: "POST",
+
           headers: {
             "Content-Type": "application/json"
           },
+
           body: JSON.stringify(form)
         }
       );
@@ -56,26 +70,32 @@ export function AuthForm({
 
       if (!response.ok) {
         throw new Error(
-          data.error || "Could not continue"
+          data.error ||
+          "Authentication failed."
         );
       }
 
-      const path = params.get("next");
+      const path =
+        params.get("next");
+
+      const safePath =
+        path?.startsWith("/") &&
+        !path.startsWith("//") &&
+        !path.startsWith("/\\");
 
       router.push(
-        path?.startsWith("/") &&
-        !path.startsWith("//")
-          ? path
+        safePath
+          ? path!
           : "/account"
       );
 
       router.refresh();
 
-    } catch (error) {
+    } catch (caught) {
       setError(
-        error instanceof Error
-          ? error.message
-          : "Authentication failed"
+        caught instanceof Error
+          ? caught.message
+          : "Authentication failed."
       );
 
       setBusy(false);
@@ -127,7 +147,7 @@ export function AuthForm({
         <p className="auth-sub">
           {mode === "login"
             ? "Pick up where you left off."
-            : "Create your account to track purchases and events."}
+            : "Create an account to track orders and event registrations. Shopping as a guest does not require an account."}
         </p>
 
         <form
@@ -137,16 +157,18 @@ export function AuthForm({
           {mode === "register" && (
             <label>
               FULL NAME
+
               <input
                 required
                 minLength={2}
+                maxLength={100}
                 autoComplete="name"
                 value={form.name}
                 onChange={event =>
-                  setForm({
-                    ...form,
+                  setForm(previous => ({
+                    ...previous,
                     name: event.target.value
-                  })
+                  }))
                 }
               />
             </label>
@@ -154,41 +176,108 @@ export function AuthForm({
 
           <label>
             EMAIL ADDRESS
+
             <input
               type="email"
               required
               autoComplete="email"
               value={form.email}
               onChange={event =>
-                setForm({
-                  ...form,
+                setForm(previous => ({
+                  ...previous,
                   email: event.target.value
-                })
+                }))
               }
             />
           </label>
 
           <label>
             PASSWORD
-            <input
-              type="password"
-              required
-              minLength={
-                mode === "register" ? 10 : 1
-              }
-              autoComplete={
-                mode === "login"
-                  ? "current-password"
-                  : "new-password"
-              }
-              value={form.password}
-              onChange={event =>
-                setForm({
-                  ...form,
-                  password: event.target.value
-                })
-              }
-            />
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                position: "relative"
+              }}
+            >
+              <input
+                type={
+                  visible
+                    ? "text"
+                    : "password"
+                }
+                required
+                minLength={
+                  mode === "register"
+                    ? 10
+                    : 1
+                }
+                maxLength={
+                  mode === "register"
+                    ? 128
+                    : undefined
+                }
+                autoComplete={
+                  mode === "login"
+                    ? "current-password"
+                    : "new-password"
+                }
+                value={form.password}
+                onChange={event =>
+                  setForm(previous => ({
+                    ...previous,
+                    password:
+                      event.target.value
+                  }))
+                }
+                style={{
+                  paddingRight: 58
+                }}
+              />
+
+              <button
+                type="button"
+                aria-label={
+                  visible
+                    ? "Hide password"
+                    : "Show password"
+                }
+                onClick={() =>
+                  setVisible(!visible)
+                }
+                style={{
+                  position: "absolute",
+                  right: 10,
+                  background: "transparent",
+                  border: 0,
+                  padding: 8,
+                  cursor: "pointer"
+                }}
+              >
+                {visible ? (
+                  <EyeOff size={18} />
+                ) : (
+                  <Eye size={18} />
+                )}
+              </button>
+            </div>
+
+            {mode === "register" && (
+              <small
+                style={{
+                  fontSize: 11,
+                  color: "#777",
+                  letterSpacing: 0,
+                  lineHeight: 1.6
+                }}
+              >
+                Minimum 10 characters.
+                A longer, unique passphrase
+                is recommended. Symbols are
+                optional.
+              </small>
+            )}
           </label>
 
           {error && (
@@ -213,6 +302,16 @@ export function AuthForm({
             <ArrowRight size={18} />
           </button>
         </form>
+
+        {mode === "register" && (
+          <Link
+            href="/shop"
+            className="plain-back"
+          >
+            CONTINUE SHOPPING AS A GUEST
+            <ArrowRight size={16} />
+          </Link>
+        )}
 
         <p className="switch-auth">
           {mode === "login"

@@ -1,6 +1,10 @@
+import {
+  randomUUID
+} from "node:crypto";
 
-import { randomUUID } from "node:crypto";
-import { NextResponse } from "next/server";
+import {
+  NextResponse
+} from "next/server";
 
 import { prisma } from "@/lib/db";
 import { sessionUser } from "@/lib/auth";
@@ -15,9 +19,88 @@ import {
   errorMessage
 } from "@/lib/schemas";
 
-import { startPayment } from "@/lib/paychangu";
+import {
+  paymentsEnabled
+} from "@/lib/commerce";
+
+import {
+  startPayment
+} from "@/lib/paychangu";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+type Group = {
+  kind: "PRODUCT" | "TICKET";
+  id: string;
+  quantity: number;
+  size?: string;
+  color?: string;
+};
+
+type OrderLine = {
+  kind: "PRODUCT" | "TICKET";
+  catalogId: string;
+  title: string;
+  unitPrice: number;
+  quantity: number;
+  subtotal: number;
+  size?: string;
+  color?: string;
+  variantId?: string;
+};
+
+function fail(
+  message: string,
+  status: number
+) {
+  return NextResponse.json(
+    { error: message },
+    {
+      status,
+      headers: {
+        "Cache-Control": "no-store"
+      }
+    }
+  );
+}
+
+function validOrigin(req: Request): boolean {
+  const expected =
+    process.env.NEXT_PUBLIC_APP_URL;
+
+  const origin =
+    req.headers.get("origin");
+
+  if (!expected || !origin) {
+    return false;
+  }
+
+  try {
+    return (
+      new URL(origin).origin ===
+      new URL(expected).origin
+    );
+  } catch {
+    return false;
+  }
+}
 
 export async function POST(req: Request) {
+  if (!paymentsEnabled()) {
+    return fail(
+      "Online payment is not available yet.",
+      503
+    );
+  }
+
+  if (!validOrigin(req)) {
+    return fail(
+      "Invalid checkout origin.",
+      403
+    );
+  }
+
   if (
     !allowRequest(
       requestIp(req),
@@ -26,42 +109,20 @@ export async function POST(req: Request) {
       10 * 60_000
     )
   ) {
-    return NextResponse.json(
-      { error: "Too many checkout requests" },
-      { status: 429 }
+    return fail(
+      "Too many checkout attempts.",
+      429
     );
   }
 
   try {
-    const {
-      items,
-      customer
-    } = checkoutSchema.parse(
-      await req.json()
-    );
-
-    if (
-      items.some(item => item.kind === "PRODUCT") &&
-      (!customer.address || !customer.city)
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Delivery address and city are required"
-        },
-        { status: 400 }
+    const { items, customer } =
+      checkoutSchema.parse(
+        await req.json()
       );
-    }
 
-    type Group = {
-      kind: "PRODUCT" | "TICKET";
-      id: string;
-      quantity: number;
-      size?: string;
-      color?: string;
-    };
-
-    const grouped = new Map<string, Group>();
+    const grouped =
+      new Map<string, Group>();
 
     for (const item of items) {
       const key = [
@@ -75,88 +136,97 @@ export async function POST(req: Request) {
 
       grouped.set(key, {
         ...item,
+
         quantity:
           item.quantity +
           (previous?.quantity || 0)
       });
     }
 
-    const combined = [...grouped.values()];
+    const combined = [
+      ...grouped.values()
+    ];
 
     if (
       combined.some(
         item => item.quantity > 10
       )
     ) {
-      return NextResponse.json(
-        {
-          error:
-            "Maximum 10 units per size/color combination"
-        },
-        { status: 400 }
+      return fail(
+        "Maximum 10 units per size and color.",
+        400
       );
     }
-
-    type OrderLine = {
-      kind: "PRODUCT" | "TICKET";
-      catalogId: string;
-      title: string;
-      unitPrice: number;
-      quantity: number;
-      subtotal: number;
-      size?: string;
-      color?: string;
-      variantId?: string;
-    };
 
     const lineItems: OrderLine[] = [];
 
     for (const item of combined) {
       if (item.kind === "PRODUCT") {
-        const product = await prisma.product.findUnique({
-          where: { id: item.id },
-          include: {
-            variants: {
-              where: { active: true }
+        const product =
+          await prisma.product.findUnique({
+            where: {
+              id: item.id
+            },
+            include: {
+              variants: {
+                where: {
+                  active: true
+                }
+              }
             }
-          }
-        });
+          });
 
         if (!product) {
-          return NextResponse.json(
-            { error: "Product unavailable" },
-            { status: 400 }
+          return fail(
+            "A product is unavailable.",
+            400
+          );
+        }
+
+        if (
+          !Number.isSafeInteger(
+            product.price
+          ) ||
+          product.price <= 0
+        ) {
+          return fail(
+            "This product cannot be purchased.",
+            400
           );
         }
 
         if (product.variants.length > 0) {
-          const selected = product.variants.find(
-            variant =>
-              variant.size.toLowerCase() ===
-                item.size?.toLowerCase() &&
-              variant.color.toLowerCase() ===
-                item.color?.toLowerCase()
-          );
+          const selected =
+            product.variants.find(
+              variant =>
+                variant.size
+                  .trim()
+                  .toLowerCase() ===
+                  item.size
+                    ?.trim()
+                    .toLowerCase() &&
+                variant.color
+                  .trim()
+                  .toLowerCase() ===
+                  item.color
+                    ?.trim()
+                    .toLowerCase()
+            );
 
           if (!selected) {
-            return NextResponse.json(
-              {
-                error:
-                  `Select an available size and color for ${product.name}`
-              },
-              { status: 400 }
+            return fail(
+              `Choose a valid size and color for ${product.name}.`,
+              400
             );
           }
 
           if (
-            selected.stock < item.quantity
+            selected.stock <
+            item.quantity
           ) {
-            return NextResponse.json(
-              {
-                error:
-                  `Insufficient stock: ${product.name} / ${selected.size} / ${selected.color}`
-              },
-              { status: 409 }
+            return fail(
+              `Insufficient stock: ${product.name} / ${selected.size} / ${selected.color}.`,
+              409
             );
           }
 
@@ -167,46 +237,43 @@ export async function POST(req: Request) {
             unitPrice: product.price,
             quantity: item.quantity,
             subtotal:
-              product.price * item.quantity,
+              product.price *
+              item.quantity,
             size: selected.size,
             color: selected.color,
             variantId: selected.id
           });
 
         } else {
-          const headwear = /skull|headwear/i.test(
-            `${product.name} ${product.category}`
-          );
+          const headwear =
+            /skull|headwear/i.test(
+              `${product.name} ${product.category}`
+            );
 
           if (headwear) {
-            return NextResponse.json(
-              {
-                error:
-                  `${product.name} needs size/color configuration`
-              },
-              { status: 400 }
-            );
-          }
-
-          if (item.size || item.color) {
-            return NextResponse.json(
-              {
-                error:
-                  "This product has no selectable variants"
-              },
-              { status: 400 }
+            return fail(
+              `${product.name} needs size/color configuration.`,
+              400
             );
           }
 
           if (
-            product.stock < item.quantity
+            item.size ||
+            item.color
           ) {
-            return NextResponse.json(
-              {
-                error:
-                  `Insufficient stock: ${product.name}`
-              },
-              { status: 409 }
+            return fail(
+              "This product has no selectable variants.",
+              400
+            );
+          }
+
+          if (
+            product.stock <
+            item.quantity
+          ) {
+            return fail(
+              `Insufficient stock: ${product.name}.`,
+              409
             );
           }
 
@@ -217,61 +284,59 @@ export async function POST(req: Request) {
             unitPrice: product.price,
             quantity: item.quantity,
             subtotal:
-              product.price * item.quantity
+              product.price *
+              item.quantity
           });
         }
 
       } else {
-        if (item.size || item.color) {
-          return NextResponse.json(
-            {
-              error:
-                "Event tickets do not use size/color"
-            },
-            { status: 400 }
+        if (
+          item.size ||
+          item.color
+        ) {
+          return fail(
+            "Event tickets do not use size or color.",
+            400
           );
         }
 
-        const event = await prisma.event.findUnique({
-          where: { id: item.id }
-        });
+        const event =
+          await prisma.event.findUnique({
+            where: {
+              id: item.id
+            }
+          });
 
         if (!event) {
-          return NextResponse.json(
-            { error: "Event not found" },
-            { status: 400 }
-          );
-        }
-
-        if (event.date <= new Date()) {
-          return NextResponse.json(
-            {
-              error:
-                "Ticket sales have ended"
-            },
-            { status: 400 }
-          );
-        }
-
-        if (event.price === 0) {
-          return NextResponse.json(
-            {
-              error:
-                "Free events use RSVP"
-            },
-            { status: 400 }
+          return fail(
+            "Event not found.",
+            400
           );
         }
 
         if (
-          event.remaining < item.quantity
+          event.date <= new Date()
         ) {
-          return NextResponse.json(
-            {
-              error:
-                "Insufficient tickets"
-            },
-            { status: 409 }
+          return fail(
+            "Ticket sales have ended.",
+            400
+          );
+        }
+
+        if (event.price <= 0) {
+          return fail(
+            "Free events use RSVP registration.",
+            400
+          );
+        }
+
+        if (
+          event.remaining <
+          item.quantity
+        ) {
+          return fail(
+            "Insufficient tickets.",
+            409
           );
         }
 
@@ -282,12 +347,15 @@ export async function POST(req: Request) {
           unitPrice: event.price,
           quantity: item.quantity,
           subtotal:
-            event.price * item.quantity
+            event.price *
+            item.quantity
         });
       }
     }
 
-    // Check combined stock for each product/event.
+    // Recheck combined quantity across
+    // all variants of the same product
+    // or tickets for the same event.
     const totals = new Map<
       string,
       {
@@ -308,6 +376,7 @@ export async function POST(req: Request) {
       totals.set(key, {
         kind: line.kind,
         id: line.catalogId,
+
         quantity:
           line.quantity +
           (previous?.quantity || 0)
@@ -319,14 +388,22 @@ export async function POST(req: Request) {
         entry.kind === "PRODUCT"
           ? (
               await prisma.product.findUnique({
-                where: { id: entry.id },
-                select: { stock: true }
+                where: {
+                  id: entry.id
+                },
+                select: {
+                  stock: true
+                }
               })
             )?.stock
           : (
               await prisma.event.findUnique({
-                where: { id: entry.id },
-                select: { remaining: true }
+                where: {
+                  id: entry.id
+                },
+                select: {
+                  remaining: true
+                }
               })
             )?.remaining;
 
@@ -334,12 +411,9 @@ export async function POST(req: Request) {
         available === undefined ||
         available < entry.quantity
       ) {
-        return NextResponse.json(
-          {
-            error:
-              "Combined order quantity exceeds available stock"
-          },
-          { status: 409 }
+        return fail(
+          "Combined quantity exceeds availability.",
+          409
         );
       }
     }
@@ -355,87 +429,160 @@ export async function POST(req: Request) {
       total <= 0 ||
       total > 2147483647
     ) {
-      return NextResponse.json(
-        { error: "Invalid order total" },
-        { status: 400 }
+      return fail(
+        "Invalid order total.",
+        400
       );
     }
+
+    const physical = lineItems.some(
+      line => line.kind === "PRODUCT"
+    );
 
     const reference =
       `KARMA-${randomUUID()}`;
 
     const user = await sessionUser();
 
-    const order = await prisma.order.create({
-      data: {
-        reference,
-        userId: user?.id ?? null,
-        name: customer.name,
-        email: customer.email,
-        phone: customer.phone,
-        address: customer.address,
-        city: customer.city,
-        total,
+    // Guest checkout:
+    // userId may legitimately be null.
+    const order =
+      await prisma.order.create({
+        data: {
+          reference,
+          userId: user?.id ?? null,
 
-        items: {
-          create: lineItems
+          name: customer.name,
+          email: customer.email,
+          phone: customer.phone,
+
+          address: physical
+            ? customer.address
+            : "",
+
+          city: physical
+            ? customer.city
+            : "",
+
+          deliveryMethod: physical
+            ? customer.deliveryMethod
+            : "NONE",
+
+          deliveryOther:
+            physical &&
+            customer.deliveryMethod === "OTHER"
+              ? customer.deliveryOther
+              : null,
+
+          deliveryNotes:
+            physical &&
+            customer.deliveryNotes
+              ? customer.deliveryNotes
+              : null,
+
+          deliveryTermsAccepted:
+            physical
+              ? customer.deliveryTermsAccepted
+              : false,
+
+          total,
+
+          items: {
+            create: lineItems
+          }
         }
-      }
-    });
+      });
+
+    let checkoutUrl: string;
 
     try {
-      const checkoutUrl = await startPayment({
+      checkoutUrl = await startPayment({
         reference,
         amount: total,
         name: customer.name,
         email: customer.email
       });
 
-      await prisma.order.update({
-        where: { id: order.id },
-        data: { paymentLink: checkoutUrl }
-      });
-
-      return NextResponse.json(
-        {
-          reference,
-          checkoutUrl
-        },
-        { status: 201 }
+    } catch (caught) {
+      console.error(
+        "[KARMA] Payment initialization failed:",
+        caught
       );
 
-    } catch (error: any) {
-      await prisma.order.update({
-        where: { id: order.id },
-        data: { status: "FAILED" }
+      await prisma.order.updateMany({
+        where: {
+          id: order.id,
+          status: "PENDING"
+        },
+        data: {
+          status: "FAILED"
+        }
       });
 
-      return NextResponse.json(
-        {
-          error:
-            error?.message ||
-            "Unable to initialize payment"
-        },
-        { status: 502 }
+      return fail(
+        "Payment could not start. No successful payment has been confirmed.",
+        502
       );
     }
 
-  } catch (error: any) {
-    if (error?.name === "ZodError") {
-      return NextResponse.json(
-        { error: errorMessage(error) },
-        { status: 400 }
+    // If this update fails, leave the
+    // order pending for later reconciliation.
+    // Do not falsely mark an initialized
+    // payment session as failed.
+    try {
+      await prisma.order.update({
+        where: {
+          id: order.id
+        },
+        data: {
+          paymentLink: checkoutUrl
+        }
+      });
+
+    } catch (caught) {
+      console.error(
+        "[KARMA] Payment link persistence failed:",
+        caught
+      );
+
+      return fail(
+        "Checkout could not be completed. Contact support before attempting another payment.",
+        503
+      );
+    }
+
+    return NextResponse.json(
+      {
+        reference,
+        checkoutUrl
+      },
+      {
+        status: 201,
+        headers: {
+          "Cache-Control": "no-store"
+        }
+      }
+    );
+
+  } catch (caught) {
+    if (
+      caught instanceof Error &&
+      caught.name === "ZodError"
+    ) {
+      return fail(
+        errorMessage(caught),
+        400
       );
     }
 
     console.error(
-      "Checkout error",
-      error?.message
+      "[KARMA] Checkout failed:",
+      caught
     );
 
-    return NextResponse.json(
-      { error: "Checkout unavailable" },
-      { status: 503 }
+    return fail(
+      "Checkout is temporarily unavailable.",
+      503
     );
   }
 }

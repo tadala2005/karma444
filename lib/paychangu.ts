@@ -1,4 +1,3 @@
-
 import {
   validWebhookSignature as checkWebhook,
   paymentMatchesOrder,
@@ -6,23 +5,31 @@ import {
   isFailedPayment
 } from "./paychangu-core";
 
-import { prisma } from "./db";
+import {
+  prisma
+} from "./db";
+
+import {
+  paymentMode
+} from "./commerce";
 
 const API = "https://api.paychangu.com";
 
 export class PaymentError extends Error {}
 
-function key() {
-  const value =
-    process.env.PAYCHANGU_SECRET_KEY;
+class OutOfStock extends Error {}
 
-  if (!value) {
+function secretKey(): string {
+  const key =
+    process.env.PAYCHANGU_SECRET_KEY?.trim();
+
+  if (!key) {
     throw new PaymentError(
-      "PayChangu is not configured"
+      "Payment provider is not configured."
     );
   }
 
-  return value;
+  return key;
 }
 
 async function apiRequest(
@@ -34,40 +41,45 @@ async function apiRequest(
     `${API}${path}`,
     {
       method,
+
       headers: {
-        Authorization: `Bearer ${key()}`,
+        Authorization:
+          `Bearer ${secretKey()}`,
+
         Accept: "application/json",
         "Content-Type": "application/json"
       },
+
       body: body
         ? JSON.stringify(body)
         : undefined,
+
       cache: "no-store",
+
       signal: AbortSignal.timeout(20000)
     }
   );
 
-  let data: any;
+  let result: any;
 
   try {
-    data = await response.json();
+    result = await response.json();
   } catch {
     throw new PaymentError(
-      "Invalid payment-provider response"
+      "Invalid payment provider response."
     );
   }
 
   if (
     !response.ok ||
-    data?.status !== "success"
+    result?.status !== "success"
   ) {
     throw new PaymentError(
-      data?.message ||
-      "Payment provider could not process the request"
+      "Payment provider request failed."
     );
   }
 
-  return data;
+  return result;
 }
 
 export async function startPayment(args: {
@@ -75,18 +87,26 @@ export async function startPayment(args: {
   amount: number;
   email: string;
   name: string;
-}) {
-  const base =
-    process.env.NEXT_PUBLIC_APP_URL;
+}): Promise<string> {
+  const mode = paymentMode();
 
-  if (
-    !base ||
-    !/^https?:\/\//.test(base)
-  ) {
+  if (mode === "disabled") {
     throw new PaymentError(
-      "NEXT_PUBLIC_APP_URL is not configured"
+      "Online payments are disabled."
     );
   }
+
+  if (
+    !Number.isSafeInteger(args.amount) ||
+    args.amount <= 0
+  ) {
+    throw new PaymentError(
+      "Invalid payment amount."
+    );
+  }
+
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_URL!;
 
   const names = args.name
     .trim()
@@ -100,20 +120,23 @@ export async function startPayment(args: {
       amount: String(args.amount),
       currency: "MWK",
       email: args.email,
+
       first_name: names[0],
       last_name:
         names.slice(1).join(" "),
 
       callback_url:
-        `${base}/api/paychangu/callback`,
+        `${baseUrl}/api/paychangu/callback`,
 
       return_url:
-        `${base}/order?ref=${encodeURIComponent(args.reference)}`,
+        `${baseUrl}/order?ref=${encodeURIComponent(
+          args.reference
+        )}`,
 
       customization: {
-        title: "Karma Curated Checkout",
+        title: "Karma Curated",
         description:
-          "Karma Curated merchandise and event tickets"
+          "Merchandise and event tickets"
       },
 
       meta: {
@@ -122,21 +145,52 @@ export async function startPayment(args: {
     }
   );
 
+  const returnedMode =
+    data?.data?.data?.mode;
+
+  if (
+    returnedMode &&
+    returnedMode !== mode
+  ) {
+    throw new PaymentError(
+      "Payment environment mismatch."
+    );
+  }
+
   const checkoutUrl =
     data?.data?.checkout_url;
 
   if (
-    typeof checkoutUrl !== "string" ||
-    !/^https:\/\/([a-z0-9-]+\.)*paychangu\.com\//i.test(
-      checkoutUrl
-    )
+    typeof checkoutUrl !== "string"
   ) {
     throw new PaymentError(
-      "Unexpected payment link"
+      "Checkout URL missing."
     );
   }
 
-  return checkoutUrl;
+  let url: URL;
+
+  try {
+    url = new URL(checkoutUrl);
+  } catch {
+    throw new PaymentError(
+      "Invalid checkout URL."
+    );
+  }
+
+  if (
+    url.protocol !== "https:" ||
+    !(
+      url.hostname === "paychangu.com" ||
+      url.hostname.endsWith(".paychangu.com")
+    )
+  ) {
+    throw new PaymentError(
+      "Unexpected checkout destination."
+    );
+  }
+
+  return url.toString();
 }
 
 export type Verification = {
@@ -144,6 +198,7 @@ export type Verification = {
   tx_ref: string;
   amount: number;
   currency: string;
+  mode: string;
   reference?: string;
 };
 
@@ -151,15 +206,17 @@ export async function verifyProviderPayment(
   reference: string
 ): Promise<Verification> {
   if (
-    !/^[a-zA-Z0-9_-]{8,128}$/.test(reference)
+    !/^KARMA-[a-f0-9-]{36}$/i.test(reference)
   ) {
     throw new PaymentError(
-      "Invalid reference"
+      "Invalid order reference."
     );
   }
 
   const result = await apiRequest(
-    `/verify-payment/${encodeURIComponent(reference)}`,
+    `/verify-payment/${encodeURIComponent(
+      reference
+    )}`,
     "GET"
   );
 
@@ -170,24 +227,57 @@ export async function verifyProviderPayment(
     typeof data.tx_ref !== "string"
   ) {
     throw new PaymentError(
-      "Malformed payment verification"
+      "Malformed verification response."
+    );
+  }
+
+  const expectedMode =
+    process.env.PAYCHANGU_MODE;
+
+  if (
+    expectedMode !== "test" &&
+    expectedMode !== "live"
+  ) {
+    throw new PaymentError(
+      "Payment environment not configured."
+    );
+  }
+
+  if (
+    data.mode !== expectedMode
+  ) {
+    throw new PaymentError(
+      "Payment environment mismatch."
     );
   }
 
   return {
     status:
       String(data.status).toLowerCase(),
-    tx_ref: data.tx_ref,
-    amount: Number(data.amount),
-    currency: String(data.currency),
-    reference: data.reference
+
+    tx_ref:
+      data.tx_ref,
+
+    amount:
+      Number(data.amount),
+
+    currency:
+      String(data.currency),
+
+    mode:
+      String(data.mode),
+
+    reference:
+      typeof data.reference === "string"
+        ? data.reference
+        : undefined
   };
 }
 
 export function validWebhookSignature(
   raw: string,
   received: string | null
-) {
+): boolean {
   return checkWebhook(
     raw,
     received,
@@ -195,19 +285,33 @@ export function validWebhookSignature(
   );
 }
 
-class OutOfStock extends Error {}
+function isTransactionConflict(
+  error: unknown
+): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "P2034"
+  );
+}
 
 export async function reconcileOrder(
   reference: string
 ) {
-  const existing = await prisma.order.findUnique({
-    where: { reference },
-    include: { items: true }
-  });
+  const existing =
+    await prisma.order.findUnique({
+      where: {
+        reference
+      },
+      include: {
+        items: true
+      }
+    });
 
   if (!existing) {
     throw new PaymentError(
-      "Order not found"
+      "Order not found."
     );
   }
 
@@ -223,173 +327,273 @@ export async function reconcileOrder(
     await verifyProviderPayment(reference);
 
   if (
-    payment.tx_ref !== existing.reference
+    payment.tx_ref !==
+    existing.reference
   ) {
     throw new PaymentError(
-      "Payment reference mismatch"
+      "Transaction reference mismatch."
     );
   }
 
   if (
-    isSuccessfulPayment(payment.status) &&
-    !paymentMatchesOrder(
-      payment,
-      existing.reference,
-      existing.total
-    )
+    isSuccessfulPayment(payment.status)
   ) {
-    throw new PaymentError(
-      "Payment amount or currency mismatch"
-    );
-  }
+    // A successful payment must always
+    // match the correct reference,
+    // amount and currency.
+    if (
+      payment.currency !== "MWK" ||
+      !Number.isSafeInteger(
+        payment.amount
+      )
+    ) {
+      throw new PaymentError(
+        "Payment currency or amount invalid."
+      );
+    }
 
-  if (isSuccessfulPayment(payment.status)) {
-    try {
-      return await prisma.$transaction(
-        async tx => {
-          const current =
-            await tx.order.findUnique({
-              where: { reference },
-              include: { items: true }
-            });
-
-          if (!current) {
-            throw new PaymentError(
-              "Order unavailable"
-            );
+    // An overpayment is real money,
+    // but requires human review/refund.
+    if (
+      payment.amount > existing.total
+    ) {
+      await prisma.order.updateMany({
+        where: {
+          reference,
+          status: {
+            in: [
+              "PENDING",
+              "FAILED"
+            ]
           }
+        },
 
-          if (
-            !["PENDING", "FAILED"].includes(
-              current.status
-            )
-          ) {
-            return current;
-          }
+        data: {
+          status: "PAID_REVIEW",
+          providerRef:
+            payment.reference || null
+        }
+      });
 
-          for (const item of current.items) {
+      return prisma.order.findUniqueOrThrow({
+        where: {
+          reference
+        }
+      });
+    }
+
+    if (
+      !paymentMatchesOrder(
+        payment,
+        existing.reference,
+        existing.total
+      )
+    ) {
+      throw new PaymentError(
+        "Payment does not match the order."
+      );
+    }
+
+    for (
+      let attempt = 0;
+      attempt < 3;
+      attempt++
+    ) {
+      try {
+        return await prisma.$transaction(
+          async tx => {
+            const current =
+              await tx.order.findUnique({
+                where: {
+                  reference
+                },
+                include: {
+                  items: true
+                }
+              });
+
+            if (!current) {
+              throw new PaymentError(
+                "Order unavailable."
+              );
+            }
+
+            // Idempotent reconciliation:
+            // an already completed order
+            // must not deduct stock again.
             if (
-              item.kind === "PRODUCT" &&
-              item.variantId
+              ![
+                "PENDING",
+                "FAILED"
+              ].includes(current.status)
             ) {
-              const selected =
-                await tx.productVariant.updateMany({
-                  where: {
-                    id: item.variantId,
-                    productId: item.catalogId,
-                    active: true,
-                    stock: {
-                      gte: item.quantity
-                    }
-                  },
+              return current;
+            }
 
-                  data: {
-                    stock: {
-                      decrement: item.quantity
-                    }
-                  }
-                });
+            for (
+              const item of current.items
+            ) {
+              if (
+                item.kind === "PRODUCT" &&
+                item.variantId
+              ) {
+                const variant =
+                  await tx.productVariant.updateMany({
+                    where: {
+                      id: item.variantId,
+                      productId:
+                        item.catalogId,
+                      active: true,
 
-              if (selected.count !== 1) {
-                throw new OutOfStock(
-                  "Selected size/color sold out"
-                );
+                      stock: {
+                        gte: item.quantity
+                      }
+                    },
+
+                    data: {
+                      stock: {
+                        decrement:
+                          item.quantity
+                      }
+                    }
+                  });
+
+                if (
+                  variant.count !== 1
+                ) {
+                  throw new OutOfStock(
+                    "Variant sold out."
+                  );
+                }
+              }
+
+              if (
+                item.kind === "PRODUCT"
+              ) {
+                const product =
+                  await tx.product.updateMany({
+                    where: {
+                      id: item.catalogId,
+
+                      stock: {
+                        gte: item.quantity
+                      }
+                    },
+
+                    data: {
+                      stock: {
+                        decrement:
+                          item.quantity
+                      }
+                    }
+                  });
+
+                if (
+                  product.count !== 1
+                ) {
+                  throw new OutOfStock(
+                    "Product stock exhausted."
+                  );
+                }
+
+              } else {
+                const event =
+                  await tx.event.updateMany({
+                    where: {
+                      id: item.catalogId,
+
+                      remaining: {
+                        gte: item.quantity
+                      }
+                    },
+
+                    data: {
+                      remaining: {
+                        decrement:
+                          item.quantity
+                      }
+                    }
+                  });
+
+                if (
+                  event.count !== 1
+                ) {
+                  throw new OutOfStock(
+                    "Event capacity exhausted."
+                  );
+                }
               }
             }
 
-            if (item.kind === "PRODUCT") {
-              const result =
-                await tx.product.updateMany({
-                  where: {
-                    id: item.catalogId,
-                    stock: {
-                      gte: item.quantity
-                    }
-                  },
+            return tx.order.update({
+              where: {
+                reference
+              },
 
-                  data: {
-                    stock: {
-                      decrement: item.quantity
-                    }
-                  }
-                });
-
-              if (result.count !== 1) {
-                throw new OutOfStock(
-                  "Insufficient product stock"
-                );
+              data: {
+                status: "PAID",
+                providerRef:
+                  payment.reference || null
               }
+            });
+          },
 
-            } else {
-              const result =
-                await tx.event.updateMany({
-                  where: {
-                    id: item.catalogId,
-                    remaining: {
-                      gte: item.quantity
-                    }
-                  },
+          {
+            isolationLevel:
+              "Serializable",
 
-                  data: {
-                    remaining: {
-                      decrement: item.quantity
-                    }
-                  }
-                });
-
-              if (result.count !== 1) {
-                throw new OutOfStock(
-                  "Insufficient event capacity"
-                );
-              }
-            }
+            timeout: 15000
           }
+        );
 
-          return tx.order.update({
-            where: { reference },
+      } catch (error) {
+        if (
+          error instanceof OutOfStock
+        ) {
+          // No inventory deduction is
+          // committed when the transaction
+          // throws. Preserve the paid
+          // order for manual resolution.
+          await prisma.order.updateMany({
+            where: {
+              reference,
+              status: {
+                in: [
+                  "PENDING",
+                  "FAILED"
+                ]
+              }
+            },
+
             data: {
-              status: "PAID",
+              status: "PAID_REVIEW",
               providerRef:
                 payment.reference || null
             }
           });
 
-        },
-        {
-          isolationLevel: "Serializable",
-          timeout: 15000
-        }
-      );
-
-    } catch (error) {
-      if (error instanceof OutOfStock) {
-        // Keep the successful payment recorded.
-        // A human must resolve the stock shortage.
-        await prisma.order.updateMany({
-          where: {
-            reference,
-            status: {
-              in: ["PENDING", "FAILED"]
+          return prisma.order.findUniqueOrThrow({
+            where: {
+              reference
             }
-          },
+          });
+        }
 
-          data: {
-            status: "PAID_REVIEW",
-            providerRef:
-              payment.reference || null
-          }
-        });
+        if (
+          isTransactionConflict(error) &&
+          attempt < 2
+        ) {
+          continue;
+        }
 
-        return prisma.order.findUniqueOrThrow({
-          where: { reference }
-        });
+        throw error;
       }
-
-      throw error;
     }
   }
 
-  if (isFailedPayment(payment.status)) {
+  if (
+    isFailedPayment(payment.status)
+  ) {
     await prisma.order.updateMany({
       where: {
         reference,
@@ -402,9 +606,13 @@ export async function reconcileOrder(
     });
 
     return prisma.order.findUniqueOrThrow({
-      where: { reference }
+      where: {
+        reference
+      }
     });
   }
 
+  // Pending or unknown status:
+  // Never assume successful payment.
   return existing;
 }

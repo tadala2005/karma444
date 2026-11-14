@@ -1,4 +1,3 @@
-
 import { z } from "zod";
 import { uniqueVariants } from "./variants";
 
@@ -19,12 +18,38 @@ export const loginSchema = z.object({
   password: z.string().min(1)
 });
 
+export const deliveryMethodSchema = z.enum([
+  "NONE",
+  "CTS",
+  "SPEED",
+  "POST_OFFICE",
+  "SMART_DELIVERY",
+  "OTHER",
+  "PICKUP"
+]);
+
 export const customerSchema = z.object({
   name: z.string().trim().min(2).max(120),
   email,
   phone: z.string().trim().min(7).max(24),
   address: z.string().trim().max(250).default(""),
-  city: z.string().trim().max(80).default("")
+  city: z.string().trim().max(80).default(""),
+
+  deliveryMethod: deliveryMethodSchema
+    .default("NONE"),
+
+  deliveryOther: z.string()
+    .trim()
+    .max(100)
+    .default(""),
+
+  deliveryNotes: z.string()
+    .trim()
+    .max(500)
+    .default(""),
+
+  deliveryTermsAccepted: z.boolean()
+    .default(false)
 });
 
 export const checkoutSchema = z.object({
@@ -47,6 +72,70 @@ export const checkoutSchema = z.object({
         .optional()
     })
   ).min(1).max(25)
+}).superRefine((data, ctx) => {
+  const physical = data.items.some(
+    item => item.kind === "PRODUCT"
+  );
+
+  if (physical) {
+    if (
+      data.customer.deliveryMethod === "NONE"
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["customer", "deliveryMethod"],
+        message: "Choose a delivery or pickup option"
+      });
+    }
+
+    if (!data.customer.city) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["customer", "city"],
+        message: "Enter your city"
+      });
+    }
+
+    if (
+      !data.customer.address &&
+      !["PICKUP"].includes(
+        data.customer.deliveryMethod
+      )
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["customer", "address"],
+        message: "Enter a delivery address"
+      });
+    }
+
+    if (
+      data.customer.deliveryMethod === "OTHER" &&
+      !data.customer.deliveryOther
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["customer", "deliveryOther"],
+        message: "Enter the courier name"
+      });
+    }
+
+    if (!data.customer.deliveryTermsAccepted) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["customer", "deliveryTermsAccepted"],
+        message: "Confirm the delivery terms"
+      });
+    }
+  } else if (
+    data.customer.deliveryMethod !== "NONE"
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["customer", "deliveryMethod"],
+      message: "Tickets do not require delivery"
+    });
+  }
 });
 
 export const rsvpSchema = z.object({
@@ -103,7 +192,6 @@ export const eventSchema = z.object({
   venue: z.string().min(2),
   city: z.string().min(2),
   date: z.string().datetime(),
-
   price: z.number().int().min(0).max(50000000),
   capacity: z.number().int().min(1).max(100000),
   featured: z.boolean().default(false)
@@ -119,21 +207,17 @@ export const productSchema = z.object({
   name: z.string().trim().min(3).max(120),
   slug: z.string().regex(/^[a-z0-9-]+$/),
   description: z.string().trim().min(15),
-
   image: imageUrl,
   gallery: z.array(imageUrl).max(10).default([]),
-
   category: z.string().trim().min(2),
   price: z.number().int().min(1).max(50000000),
   stock: z.number().int().min(0).max(100000),
-
   featured: z.boolean().default(false),
 
   variants: z.array(productVariantSchema)
     .max(100)
     .default([])
 }).superRefine((product, ctx) => {
-
   if (!uniqueVariants(product.variants)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -146,7 +230,10 @@ export const productSchema = z.object({
     `${product.name} ${product.category}`
   );
 
-  if (isHeadwear && !product.variants.length) {
+  if (
+    isHeadwear &&
+    !product.variants.length
+  ) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["variants"],
@@ -156,7 +243,8 @@ export const productSchema = z.object({
   }
 
   const total = product.variants.reduce(
-    (sum, variant) => sum + variant.stock,
+    (sum, variant) =>
+      sum + variant.stock,
     0
   );
 

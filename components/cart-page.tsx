@@ -1,4 +1,3 @@
-
 "use client";
 
 import Link from "next/link";
@@ -16,17 +15,31 @@ import {
   Plus
 } from "lucide-react";
 
-import { useCart } from "./cart-store";
-import { money } from "@/lib/format";
+import {
+  useCart
+} from "./cart-store";
 
-export function CartPage() {
+import {
+  money
+} from "@/lib/format";
+
+import type {
+  PaymentMode
+} from "@/lib/commerce";
+
+export function CartPage({
+  mode
+}: {
+  mode: PaymentMode;
+}) {
   const {
     items,
     remove,
     quantity
   } = useCart();
 
-  const [mounted, setMounted] = useState(false);
+  const [mounted, setMounted] =
+    useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -34,17 +47,23 @@ export function CartPage() {
 
   const total = items.reduce(
     (sum, item) =>
-      sum + item.unitPrice * item.quantity,
+      sum +
+      item.unitPrice *
+      item.quantity,
     0
+  );
+
+  const physical = items.some(
+    item => item.kind === "PRODUCT"
   );
 
   if (!mounted) {
     return (
-      <div className="main-container">
+      <main className="main-container page-pad">
         <h1 className="page-title">
-          YOUR BAG
+          YOUR BAG.
         </h1>
-      </div>
+      </main>
     );
   }
 
@@ -62,16 +81,25 @@ export function CartPage() {
         </h1>
 
         <p>
-          Discover a piece worth wearing.
+          Find something worth wearing
+          or experiencing.
         </p>
 
-        <Link
-          href="/shop"
-          className="btn dark"
-        >
-          EXPLORE THE DROP
-          <ArrowRight size={17} />
-        </Link>
+        <div className="inline-links">
+          <Link
+            href="/shop"
+            className="btn dark"
+          >
+            EXPLORE THE DROP
+          </Link>
+
+          <Link
+            href="/events"
+            className="btn outline"
+          >
+            DISCOVER EVENTS
+          </Link>
+        </div>
       </main>
     );
   }
@@ -134,6 +162,9 @@ export function CartPage() {
                   <button
                     type="button"
                     aria-label="Decrease quantity"
+                    disabled={
+                      item.quantity <= 1
+                    }
                     onClick={() =>
                       quantity(
                         item.id,
@@ -152,6 +183,9 @@ export function CartPage() {
                   <button
                     type="button"
                     aria-label="Increase quantity"
+                    disabled={
+                      item.quantity >= 10
+                    }
                     onClick={() =>
                       quantity(
                         item.id,
@@ -202,36 +236,63 @@ export function CartPage() {
           <h2>THE TOTAL.</h2>
 
           <div className="summary-row">
-            <span>Subtotal</span>
+            <span>Items subtotal</span>
             <b>{money(total)}</b>
           </div>
 
-          <div className="summary-row">
-            <span>Delivery</span>
-            <span>
-              Arranged after purchase
-            </span>
-          </div>
+          {physical && (
+            <div className="summary-row">
+              <span>Delivery</span>
+              <span>Quoted separately</span>
+            </div>
+          )}
 
           <div className="summary-total">
-            <span>TOTAL</span>
+            <span>
+              {physical
+                ? "ITEMS TOTAL"
+                : "TOTAL"}
+            </span>
+
             <b>{money(total)}</b>
           </div>
 
-          <Link
-            className="btn orange fill"
-            href="/checkout"
-          >
-            CONTINUE TO PAYMENT
-            <ArrowRight size={18} />
-          </Link>
+          {mode === "disabled" ? (
+            <div className="error-msg">
+              Online checkout is not
+              available yet. Your bag
+              will remain saved in this browser.
+            </div>
+          ) : (
+            <Link
+              className="btn orange fill"
+              href="/checkout"
+            >
+              {mode === "test"
+                ? "CONTINUE TO TEST CHECKOUT"
+                : "CONTINUE TO CHECKOUT"}
 
-          <p className="subtle center">
-            Payments secured by PayChangu
-          </p>
+              <ArrowRight size={18} />
+            </Link>
+          )}
+
+          {physical && (
+            <p
+              className="subtle"
+              style={{
+                marginTop: 18,
+                fontSize: 12,
+                lineHeight: 1.7
+              }}
+            >
+              A preferred courier or pickup
+              option is selected at checkout.
+              Delivery fees are not included
+              in the online total.
+            </p>
+          )}
         </aside>
       </div>
     </main>
   );
 }
-
